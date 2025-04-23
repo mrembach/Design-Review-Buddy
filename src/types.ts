@@ -1,0 +1,90 @@
+import { EventHandler } from '@create-figma-plugin/utilities'
+
+export interface VariableCollectionData {
+  id: string
+  name: string
+  key: string
+  libraryName?: string
+}
+
+export interface VariableData {
+  id: string
+  name: string
+  key: string
+  type: string
+  values: Record<string, any>
+}
+
+export interface SelectedCollectionData extends VariableCollectionData {
+  variables?: Array<VariableData>
+}
+
+export interface NodeProperty {
+  name: string
+  value: any
+  formattedValue: string
+  variableId?: string
+  collectionId?: string
+  styleName?: string
+  isMismatched: boolean
+  matchedByException?: string
+  suggestedVariable?: {
+    id: string
+    name: string
+    value: any
+  }
+  expectedCollections: Array<{
+    id: string
+    name: string
+  }>
+}
+
+export interface AnalysisResult {
+  nodeId: string
+  nodeName: string
+  nodeType: string
+  layoutMode?: string
+  properties: Array<NodeProperty>
+  isLocked: boolean
+  isVisible: boolean
+}
+
+export interface InitializeHandler extends EventHandler {
+  name: 'INITIALIZE'
+  handler: (variableCollections: Array<VariableCollectionData>) => void
+}
+
+export interface CollectionSelectedHandler extends EventHandler {
+  name: 'COLLECTION_SELECTED'
+  handler: (collectionId: string) => void
+}
+
+export interface StartReviewHandler extends EventHandler {
+  name: 'START_REVIEW'
+  handler: (collectionId: string) => void
+}
+
+export interface CloseHandler extends EventHandler {
+  name: 'CLOSE'
+  handler: () => void
+}
+
+export interface FrameSelectionHandler extends EventHandler {
+  name: 'FRAME_SELECTION_CHANGED'
+  handler: (hasSingleFrameSelected: boolean) => void
+}
+
+export interface AnalyzeFrameHandler extends EventHandler {
+  name: 'ANALYZE_FRAME'
+  handler: (exceptions: string) => void
+}
+
+export interface AnalysisResultsHandler extends EventHandler {
+  name: 'ANALYSIS_RESULTS'
+  handler: (results: Array<AnalysisResult>) => void
+}
+
+export interface SelectLayerHandler extends EventHandler {
+  name: 'SELECT_LAYER'
+  handler: (nodeId: string) => void
+}
