@@ -126,3 +126,20 @@ export interface ApiKeyUpdatedHandler extends EventHandler {
   name: 'API_KEY_UPDATED'
   handler: (success: boolean) => void
 }
+
+export interface ResolvedVariableValue {
+  variableId: string;
+  name: string;
+  value: any;
+  resolvedType: VariableResolvedDataType;
+}
+
+export interface FetchVariableValuesHandler extends EventHandler {
+  name: 'FETCH_VARIABLE_VALUES'
+  handler: () => void
+}
+
+export interface VariableValuesLoadedHandler extends EventHandler {
+  name: 'VARIABLE_VALUES_LOADED'
+  handler: (values: ResolvedVariableValue[]) => void
+}

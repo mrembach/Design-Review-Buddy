@@ -40,7 +40,10 @@ import {
   LibraryVariables,
   LibraryVariablesHandler,
   SetFigmaApiKeyHandler,
-  ApiKeyUpdatedHandler
+  ApiKeyUpdatedHandler,
+  FetchVariableValuesHandler,
+  VariableValuesLoadedHandler,
+  ResolvedVariableValue
 } from './types'
 
 function Plugin() {
@@ -60,6 +63,8 @@ function Plugin() {
   const [libraryVariables, setLibraryVariables] = useState<Array<LibraryVariables>>([])
   const [figmaApiKey, setFigmaApiKey] = useState<string>('')
   const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
+  const [resolvedVariableValues, setResolvedVariableValues] = useState<Array<ResolvedVariableValue>>([])
+  const [isFetchingValues, setIsFetchingValues] = useState<boolean>(false)
 
   // Handle receiving variable collections from the main context
   useEffect(function () {
@@ -127,6 +132,18 @@ function Plugin() {
       function (variables: Array<LibraryVariables>) {
         console.log('Received library variables:', variables)
         setLibraryVariables(variables)
+      }
+    )
+  }, [])
+
+  // Handle resolved variable values
+  useEffect(function () {
+    return on<VariableValuesLoadedHandler>(
+      'VARIABLE_VALUES_LOADED',
+      function (values: Array<ResolvedVariableValue>) {
+        console.log('Received resolved variable values:', values)
+        setResolvedVariableValues(values)
+        setIsFetchingValues(false)
       }
     )
   }, [])
@@ -211,6 +228,13 @@ function Plugin() {
     if (newSelectedId) {
       emit<SelectLayerHandler>('SELECT_LAYER', newSelectedId)
     }
+  }, [])
+
+  // Handle fetch variable values button click
+  const handleFetchValuesClick = useCallback(function () {
+    setIsFetchingValues(true)
+    setResolvedVariableValues([]) // Clear previous values
+    emit<FetchVariableValuesHandler>('FETCH_VARIABLE_VALUES')
   }, [])
 
   const getNodeIcon = (nodeType: string) => {
@@ -466,6 +490,25 @@ function Plugin() {
       return JSON.stringify(modeValues)
     }
     return String(value)
+  }
+
+  // Format a resolved variable value
+  const formatResolvedValue = (value: any, type: string): string => {
+    if (value === undefined || value === null) return 'No value';
+    
+    if (type === 'COLOR' && typeof value === 'object' && 'r' in value && 'g' in value && 'b' in value) {
+      // Format color values
+      const r = Math.round(value.r * 255)
+      const g = Math.round(value.g * 255)
+      const b = Math.round(value.b * 255)
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+    } else if (type === 'FLOAT' || type === 'NUMBER') {
+      // Format number values
+      return typeof value === 'number' ? value.toString() : String(value)
+    }
+    
+    // Default to string representation
+    return typeof value === 'object' ? JSON.stringify(value) : String(value)
   }
 
   return (
@@ -760,8 +803,52 @@ function Plugin() {
         <Fragment>
           <Divider />
           <VerticalSpace space="large" />
-          <Text style="bold">Library Variables:</Text>
+          <Stack space="small">
+            <Text style="bold">Library Variables:</Text>
+            <VerticalSpace space="extraSmall" />
+            <Button 
+              fullWidth
+              disabled={isFetchingValues || !figmaApiKey}
+              onClick={handleFetchValuesClick}
+            >
+              {isFetchingValues ? 'Fetching Values...' : 'Fetch Actual Variable Values'}
+            </Button>
+            {!figmaApiKey && (
+              <Text style={{ color: '#FF4D4D' }}>Enter API key above to fetch variable values</Text>
+            )}
+          </Stack>
           <VerticalSpace space="medium" />
+          
+          {resolvedVariableValues.length > 0 ? (
+            <Fragment>
+              <Text style="bold">Resolved Variable Values:</Text>
+              <VerticalSpace space="small" />
+              <Stack space="medium" style={{ marginLeft: '16px' }}>
+                {resolvedVariableValues.map((variable) => (
+                  <Stack key={variable.variableId} space="extraSmall" style={{ 
+                    backgroundColor: 'var(--figma-color-bg-secondary)',
+                    padding: '8px',
+                    borderRadius: '6px'
+                  }}>
+                    <Text>{variable.name}</Text>
+                    <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
+                      <Text style="secondary">Type: {variable.resolvedType}</Text>
+                      <Text style="secondary">Value: {formatResolvedValue(variable.value, variable.resolvedType)}</Text>
+                    </Stack>
+                  </Stack>
+                ))}
+              </Stack>
+              <VerticalSpace space="medium" />
+            </Fragment>
+          ) : (
+            isFetchingValues && (
+              <Fragment>
+                <LoadingIndicator />
+                <VerticalSpace space="small" />
+                <Text>Fetching variable values...</Text>
+              </Fragment>
+            )
+          )}
           
           {libraryVariables.map((library) => (
             <Fragment key={library.collectionId}>

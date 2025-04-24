@@ -17,7 +17,10 @@ import {
   LibraryVariable,
   VariableResolvedDataType,
   SetFigmaApiKeyHandler,
-  ApiKeyUpdatedHandler
+  ApiKeyUpdatedHandler,
+  FetchVariableValuesHandler,
+  VariableValuesLoadedHandler,
+  ResolvedVariableValue
 } from './types'
 
 // Store collections data in the main context
@@ -605,6 +608,81 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
   }
 }
 
+// Function to fetch variable values using the REST API
+async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]> {
+  if (!figmaApiKey || !selectedCollection) {
+    console.error('Cannot fetch variable values: Missing API key or selected collection')
+    return []
+  }
+
+  try {
+    console.log('Fetching variable values from REST API...')
+
+    // Extract file key from the collection key (first part before the colon)
+    const fileKey = selectedCollection.key.split(':')[0]
+    if (!fileKey) {
+      console.error('Could not extract file key from collection key:', selectedCollection.key)
+      return []
+    }
+
+    const resolvedValues: ResolvedVariableValue[] = []
+
+    // For each variable in the collection, fetch its values
+    if (selectedCollection.variables && selectedCollection.variables.length > 0) {
+      // Only process a reasonable number of variables to avoid rate limiting
+      const variablesToFetch = selectedCollection.variables.slice(0, 50)
+
+      for (const variable of variablesToFetch) {
+        try {
+          // Construct the REST API URL
+          const url = `https://api.figma.com/v1/variables/${fileKey}/${selectedCollection.id}/${variable.id}/values`
+          console.log('Fetching variable values from:', url)
+
+          // Make the REST API request
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'X-Figma-Token': figmaApiKey
+            }
+          })
+
+          if (!response.ok) {
+            console.error(`API request failed for ${variable.name}:`, response.status, response.statusText)
+            continue
+          }
+
+          const data = await response.json()
+          console.log('Variable values response:', data)
+
+          // Extract the value from the first mode (we could make this more sophisticated later)
+          const modeValues = data.values
+          if (modeValues && Object.keys(modeValues).length > 0) {
+            const firstModeId = Object.keys(modeValues)[0]
+            const value = modeValues[firstModeId]
+
+            resolvedValues.push({
+              variableId: variable.id,
+              name: variable.name,
+              value,
+              resolvedType: variable.type as VariableResolvedDataType
+            })
+          }
+        } catch (error) {
+          console.error(`Error fetching values for variable ${variable.name}:`, error)
+        }
+
+        // Add a small delay between requests to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+
+    return resolvedValues
+  } catch (error) {
+    console.error('Error fetching variable values:', error)
+    return []
+  }
+}
+
 export default async function () {
   console.log('=== Plugin Initialization ===')
   
@@ -637,6 +715,38 @@ export default async function () {
     } catch (error) {
       console.error('Error saving API key:', error);
       emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', false);
+    }
+  });
+  
+  // Handle variable values fetch request from UI
+  on<FetchVariableValuesHandler>('FETCH_VARIABLE_VALUES', async function () {
+    try {
+      if (!figmaApiKey) {
+        figma.notify('Please enter your Figma API key first', { error: true })
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
+        return
+      }
+
+      if (!selectedCollection) {
+        figma.notify('Please select a collection first', { error: true })
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
+        return
+      }
+
+      figma.notify('Fetching variable values...')
+      const resolvedValues = await fetchVariableValuesFromRestAPI()
+      
+      if (resolvedValues.length > 0) {
+        figma.notify(`Loaded values for ${resolvedValues.length} variables`)
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', resolvedValues)
+      } else {
+        figma.notify('No variable values found', { error: true })
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
+      }
+    } catch (error) {
+      console.error('Error in fetch variable values handler:', error)
+      figma.notify('Error fetching variable values', { error: true })
+      emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
     }
   });
   
