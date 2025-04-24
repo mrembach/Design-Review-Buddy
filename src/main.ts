@@ -509,6 +509,14 @@ async function getCollectionVariables(collection: VariableCollectionData): Promi
 
     console.log('Processed variables:', variables)
 
+    // DEBUG: Log the first variable to see its structure
+    if (variables.length > 0) {
+      console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
+      console.log('Full variable raw data:', variables[0])
+      // Check for other possible property names that might contain the mode values
+      console.log('Property names:', Object.keys(variables[0]))
+    }
+
     return {
       collectionName: collection.name,
       collectionId: collection.id,
@@ -655,7 +663,9 @@ export default async function () {
         // DEBUG: Log the first variable to see its structure
         if (variables.length > 0) {
           console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
-          console.log('valuesByMode structure:', (variables[0] as any).valuesByMode)
+          console.log('Full variable raw data:', variables[0])
+          // Check for other possible property names that might contain the mode values
+          console.log('Property names:', Object.keys(variables[0]))
         }
 
         selectedCollection = {
