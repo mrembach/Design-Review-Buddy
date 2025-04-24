@@ -618,42 +618,65 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
   try {
     console.log('Fetching variable values from REST API...')
     console.log('Selected collection:', selectedCollection)
-
-    // Try different approaches to get a valid file key
-    let fileKey = ''
     
-    // Option 1: Extract from the URL if possible
-    const figmaUrl = figma.root.getPluginData('figmaUrl') || figma.currentPage.parent?.name
-    if (figmaUrl && figmaUrl.includes('figma.com/file/')) {
-      const fileKeyMatch = figmaUrl.match(/figma\.com\/file\/([^\/]+)/)
-      if (fileKeyMatch && fileKeyMatch[1]) {
-        fileKey = fileKeyMatch[1]
-        console.log('Extracted file key from URL:', fileKey)
+    // Extract file key from the variable collection information
+    // Collection keys typically follow pattern: "LIBRARY_FILE_KEY:COLLECTION_ID:MODE_ID"
+    
+    let fileKey = ''
+    if (selectedCollection.key) {
+      console.log('Collection key:', selectedCollection.key)
+      const keyParts = selectedCollection.key.split(':')
+      if (keyParts.length > 0) {
+        fileKey = keyParts[0]
+        console.log('Extracted file key from collection key:', fileKey)
       }
     }
     
-    // Option 2: Use the document ID if option 1 failed
-    if (!fileKey) {
-      fileKey = figma.root.id
-      console.log('Using document ID as file key:', fileKey)
+    // If we still don't have a valid file key, try from library name
+    if (!fileKey || fileKey === '0' || fileKey === '0:0') {
+      // For library collections, we need to find the library's file key
+      const libraryName = selectedCollection.libraryName
+      console.log('Looking for file key using library name:', libraryName)
+      
+      // Do a direct lookup in the collection list for related collections
+      const matchingCollection = collectionsData.find(c => 
+        c.libraryName === libraryName && c.key && c.key.includes(':')
+      )
+      
+      if (matchingCollection && matchingCollection.key) {
+        const keyParts = matchingCollection.key.split(':')
+        if (keyParts.length > 0) {
+          fileKey = keyParts[0]
+          console.log('Extracted file key from matching collection:', fileKey)
+        }
+      }
     }
 
-    // Use the published variables endpoint instead of trying to access individual variables
-    // This is the correct endpoint for library variables
+    // Validate the file key
+    if (!fileKey || fileKey === '0' || fileKey === '0:0') {
+      console.error('Could not find a valid file key for this library')
+      figma.notify('Could not find a valid file key for this library', { error: true })
+      return []
+    }
+
+    // Use the published variables endpoint with the correct file key
     const url = `https://api.figma.com/v1/files/${fileKey}/variables/published`
     console.log('Fetching published variables from:', url)
+    console.log('Using API key:', figmaApiKey ? `${figmaApiKey.substring(0, 4)}...` : 'No token')
 
     // Make the REST API request
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'X-Figma-Token': figmaApiKey
+        'X-Figma-Token': figmaApiKey,
+        'Content-Type': 'application/json'
       }
     })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'No error text available')
       console.error(`API request failed (${response.status}):`, errorText)
+      figma.notify(`API request failed (${response.status}): ${errorText.slice(0, 50)}`, { error: true })
       return []
     }
 
@@ -723,13 +746,16 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
       }
     } else if (data && data.error) {
       console.error('API returned error:', data.error)
+      figma.notify(`API returned error: ${data.error}`, { error: true })
     } else {
       console.error('Unexpected API response format')
+      figma.notify('Unexpected API response format', { error: true })
     }
 
     return resolvedValues
   } catch (error) {
     console.error('Error fetching variable values:', error)
+    figma.notify(`Error fetching variable values: ${error}`, { error: true })
     return []
   }
 }
