@@ -619,11 +619,6 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
     console.log('Fetching variable values from REST API...')
     console.log('Selected collection:', selectedCollection)
 
-    // Log all components of the collection key to better understand the format
-    if (selectedCollection.key) {
-      console.log('Collection key parts:', selectedCollection.key.split(':'))
-    }
-
     // Try different approaches to get a valid file key
     let fileKey = ''
     
@@ -643,89 +638,93 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
       console.log('Using document ID as file key:', fileKey)
     }
 
+    // Use the published variables endpoint instead of trying to access individual variables
+    // This is the correct endpoint for library variables
+    const url = `https://api.figma.com/v1/files/${fileKey}/variables/published`
+    console.log('Fetching published variables from:', url)
+
+    // Make the REST API request
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-Figma-Token': figmaApiKey
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'No error text available')
+      console.error(`API request failed (${response.status}):`, errorText)
+      return []
+    }
+
+    // Parse the response
+    const data = await response.json()
+    console.log('Published variables response:', data)
+
     const resolvedValues: ResolvedVariableValue[] = []
 
-    // For each variable in the collection, fetch its values
-    if (selectedCollection.variables && selectedCollection.variables.length > 0) {
-      console.log('Processing variables:', selectedCollection.variables.slice(0, 3))
+    // Process the variables from the API response
+    if (data && data.meta && data.meta.variables) {
+      // Extract variables from the response
+      const apiVariables = data.meta.variables
       
-      // Sample debug output for the first few variables
-      for (let i = 0; i < Math.min(3, selectedCollection.variables.length); i++) {
-        const v = selectedCollection.variables[i]
-        console.log(`Variable ${i+1} details:`, {
-          id: v.id,
-          key: v.key,
-          name: v.name,
-          type: v.type
-        })
-      }
+      // Log the first few variables to understand their structure
+      console.log('First few API variables:', 
+        Object.entries(apiVariables).slice(0, 3).map(([id, v]) => ({ id, details: v }))
+      )
 
-      // Only process a reasonable number of variables to avoid rate limiting
-      const variablesToFetch = selectedCollection.variables.slice(0, 10)
+      // Map our local variables to the API variables
+      if (selectedCollection.variables && selectedCollection.variables.length > 0) {
+        // Only process a reasonable number of variables to avoid performance issues
+        const variablesToProcess = selectedCollection.variables.slice(0, 20)
 
-      for (const variable of variablesToFetch) {
-        try {
-          // Try both variable.id and variable.key to see which one works
-          // The API might expect either one depending on how variables are structured
-          const variableId = variable.key || variable.id
-          
-          if (!variableId) {
-            console.error('Variable has no ID:', variable)
-            continue
-          }
-          
-          // Get collection ID (try both the ID from the collection or one from the variable)
-          const collectionId = selectedCollection.id
-
-          // Log what we're using to construct the URL
-          console.log('API request components:', {
-            fileKey,
-            collectionId,
-            variableId,
-            variableName: variable.name
-          })
-
-          // Construct the REST API URL
-          const url = `https://api.figma.com/v1/variables/${fileKey}/${collectionId}/${variableId}/values`
-          console.log('Fetching variable values from:', url)
-
-          // Make the REST API request
-          const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'X-Figma-Token': figmaApiKey
+        for (const variable of variablesToProcess) {
+          try {
+            // For each local variable, try to find a matching API variable
+            // The key might match either the id or subscribed_id in the API
+            const variableId = variable.key || variable.id
+            let matchingApiVariable: Record<string, any> | null = null
+            
+            // Search through API variables to find a match
+            for (const [apiVarId, apiVar] of Object.entries(apiVariables)) {
+              const apiVariable = apiVar as Record<string, any>
+              
+              // Check if this API variable matches our local variable
+              if (apiVariable.name === variable.name || 
+                  apiVarId === variableId || 
+                  apiVariable.key === variableId ||
+                  apiVariable.subscribed_id === variableId) {
+                matchingApiVariable = { id: apiVarId, ...apiVariable }
+                break
+              }
             }
-          })
 
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => 'No error text available')
-            console.error(`API request failed for ${variable.name} (${response.status}):`, errorText)
-            continue
+            if (matchingApiVariable) {
+              console.log('Found matching API variable for', variable.name, ':', matchingApiVariable)
+              
+              // Extract the value (if available)
+              const value = matchingApiVariable.value || matchingApiVariable.valuesByMode
+              
+              if (value) {
+                resolvedValues.push({
+                  variableId: variable.id,
+                  name: variable.name,
+                  value,
+                  resolvedType: variable.type as VariableResolvedDataType
+                })
+              }
+            } else {
+              console.log('No matching API variable found for:', variable.name)
+            }
+          } catch (error) {
+            console.error(`Error processing variable ${variable.name}:`, error)
           }
-
-          const data = await response.json()
-          console.log('Variable values response for', variable.name, ':', data)
-
-          // Extract the value from the first mode (we could make this more sophisticated later)
-          const modeValues = data.values
-          if (modeValues && Object.keys(modeValues).length > 0) {
-            const firstModeId = Object.keys(modeValues)[0]
-            const value = modeValues[firstModeId]
-
-            resolvedValues.push({
-              variableId: variable.id,
-              name: variable.name,
-              value,
-              resolvedType: variable.type as VariableResolvedDataType
-            })
-          }
-        } catch (error) {
-          console.error(`Error fetching values for variable ${variable.name}:`, error)
         }
-
-        // Add a small delay between requests to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100))
       }
+    } else if (data && data.error) {
+      console.error('API returned error:', data.error)
+    } else {
+      console.error('Unexpected API response format')
     }
 
     return resolvedValues
