@@ -699,11 +699,49 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
             
           case 'FLOAT':
             // Extract a number from the variable name if possible
-            // This can catch patterns like "space-4" or "spacing/8" 
-            const numberMatch = variable.name.match(/[^a-zA-Z](\d+)(px)?$/)
-            placeholderValue = numberMatch ? parseInt(numberMatch[1], 10) : 0
-            displayValue = String(placeholderValue)
-            break
+            // Improve number extraction pattern to catch more cases
+            // Try various patterns that might contain numbers
+            let numberValue = 0;
+            
+            // Log the variable name for debugging
+            console.log(`Looking for number in variable name: "${variable.name}"`);
+            
+            // Pattern 1: extract digits at the end of a string (e.g., "space-4", "spacing/8")
+            const endingPattern = /[\s-/_](\d+)(?:px)?$/;
+            
+            // Pattern 2: extract digits anywhere in the string
+            const anywherePattern = /[^\w](\d+)(?:px)?/;
+            
+            // Try the more specific ending pattern first
+            const endMatch = variable.name.match(endingPattern);
+            if (endMatch && endMatch[1]) {
+              numberValue = parseInt(endMatch[1], 10);
+              console.log(`Found ending number ${numberValue} in "${variable.name}"`);
+            } 
+            // Then try the more general pattern
+            else {
+              const anyMatch = variable.name.match(anywherePattern);
+              if (anyMatch && anyMatch[1]) {
+                numberValue = parseInt(anyMatch[1], 10);
+                console.log(`Found embedded number ${numberValue} in "${variable.name}"`);
+              } else {
+                // Special case handling for known patterns
+                if (variable.name.includes('xs')) numberValue = 4;
+                else if (variable.name.includes('sm')) numberValue = 8;
+                else if (variable.name.includes('md')) numberValue = 16;
+                else if (variable.name.includes('lg')) numberValue = 24;
+                else if (variable.name.includes('xl')) numberValue = 32;
+                else if (variable.name.includes('xxl')) numberValue = 48;
+                
+                if (numberValue > 0) {
+                  console.log(`Found size keyword number ${numberValue} in "${variable.name}"`);
+                }
+              }
+            }
+            
+            placeholderValue = numberValue;
+            displayValue = String(numberValue);
+            break;
             
           case 'STRING':
             placeholderValue = variable.name
@@ -725,7 +763,9 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
           ...variable,
           resolvedValue: placeholderValue,
           displayValue: displayValue,
-          variableType: variable.resolvedType
+          variableType: variable.resolvedType,
+          // Store the original variable key for reference
+          originalKey: variable.key
         }
       } catch (err) {
         console.error(`Failed to process variable ${variable.name}:`, err)
@@ -755,38 +795,63 @@ function hashCode(str: string): number {
 function findClosestNumberVariable(value: number): { id: string; name: string; value: any; difference: number } | undefined {
   if (!selectedCollection?.variables) return undefined
   
+  console.log(`Looking for closest match to: ${value}`);
+  
   // Filter to only number variables
   const numberVariables = selectedCollection.variables.filter(variable => {
     // Check if it's a FLOAT type - either in type or resolvedType property
-    return variable.type === 'FLOAT' || 
+    const isFloat = variable.type === 'FLOAT' || 
            ('resolvedType' in variable && variable.resolvedType === 'FLOAT');
+           
+    // If we have a number variable, log it for debugging
+    if (isFloat) {
+      const variableValue = 'resolvedValue' in variable ? 
+        variable.resolvedValue : 
+        (typeof variable.valuesByMode === 'number' ? variable.valuesByMode : null);
+        
+      console.log(`Number variable: ${variable.name}, value: ${variableValue}`);
+    }
+    
+    return isFloat;
   });
   
-  if (numberVariables.length === 0) return undefined;
+  if (numberVariables.length === 0) {
+    console.log('No number variables found');
+    return undefined;
+  }
+  
+  console.log(`Found ${numberVariables.length} number variables`);
   
   // Calculate the difference for each variable and sort by absolute difference
   const sortedVariables = numberVariables.map(variable => {
     // Get the variable's value (prefer resolved value if available)
     const variableValue = 'resolvedValue' in variable ? 
       variable.resolvedValue : 
-      variable.valuesByMode;
+      (typeof variable.valuesByMode === 'number' ? variable.valuesByMode : 0);
       
     // Calculate the difference
     const difference = Math.abs(Number(variableValue) - value);
     
+    console.log(`Variable: ${variable.name}, value: ${variableValue}, difference: ${difference}`);
+    
     return {
       variable,
-      difference
+      difference,
+      value: variableValue
     };
   }).sort((a, b) => a.difference - b.difference);
   
   // If we found a match, return the closest one
   if (sortedVariables.length > 0) {
     const closest = sortedVariables[0].variable;
+    const closestValue = sortedVariables[0].value;
+    
+    console.log(`Closest match: ${closest.name} with value ${closestValue} (difference: ${sortedVariables[0].difference})`);
+    
     return {
       id: closest.id,
       name: closest.name,
-      value: 'resolvedValue' in closest ? closest.resolvedValue : closest.valuesByMode,
+      value: closestValue,
       difference: sortedVariables[0].difference
     };
   }
@@ -846,42 +911,36 @@ export default async function () {
           library: collection.libraryName
         })
         
-        const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
-        if (!Array.isArray(variables)) {
-          console.error('Variables is not an array:', variables)
-          return
-        }
-
-        // DEBUG: Log the first variable to see its structure
-        if (variables.length > 0) {
-          console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
-          console.log('Full variable raw data:', variables[0])
-          // Check for other possible property names that might contain the mode values
-          console.log('Property names:', Object.keys(variables[0]))
-        }
-
+        // Get variables from all related collections in this library
+        const allCollections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
+        
+        // Find all collections from the same library
+        const relatedCollections = allCollections.filter(c => 
+          c.libraryName === collection.libraryName
+        )
+        
+        console.log(`Found ${relatedCollections.length} related collections from library ${collection.libraryName}`)
+        
+        // Get all variables for all collections and resolve their values
+        const resolvedVariables = await resolveLibraryVariableValues([], collection.key)
+        
+        console.log(`Loaded ${resolvedVariables.length} total variables from all related collections`)
+        
+        // Store the variables in the selected collection
         selectedCollection = {
           ...collection,
-          variables: variables.map(variable => {
-            if (!variable) {
-              console.log('Skipping null/undefined variable')
-              return null
+          variables: resolvedVariables.map(variable => {
+            return {
+              id: variable.key || '',
+              name: variable.name || '',
+              key: variable.key || '',
+              type: variable.resolvedType || 'COLOR',
+              valuesByMode: {}, // Empty placeholder
+              resolvedValue: variable.resolvedValue, // Add the resolved value
+              collectionName: variable.collectionName, // Store collection info
+              collectionKey: variable.collectionKey
             }
-            try {
-              // Library variables from the API don't have valuesByMode property
-              // Just provide a placeholder empty object
-              return {
-                id: variable.key || '',
-                name: variable.name || '',
-                key: variable.key || '',
-                type: variable.resolvedType || 'COLOR',
-                valuesByMode: {} // Empty object as placeholder since API variables don't have valuesByMode
-              }
-            } catch (err) {
-              console.error('Error processing variable:', err, variable)
-              return null
-            }
-          }).filter(v => v !== null)
+          })
         }
         
         console.log('Variables Loaded:', {
@@ -890,6 +949,17 @@ export default async function () {
             Array.from(new Set(selectedCollection.variables.map(v => v.type))) : 
             []
         })
+        
+        // Log some sample number variables for debugging
+        if (selectedCollection.variables && selectedCollection.variables.length > 0) {
+          const numberVars = selectedCollection.variables.filter(v => v.type === 'FLOAT')
+          if (numberVars.length > 0) {
+            console.log('Sample number variables:')
+            numberVars.slice(0, 5).forEach(v => {
+              console.log(`- ${v.name}: ${(v as any).resolvedValue}`)
+            })
+          }
+        }
       } catch (error) {
         console.error('Error loading collection:', error)
         figma.notify('Error loading variables for collection', { error: true })

@@ -13,6 +13,9 @@ export interface VariableData {
   key: string
   type: string
   valuesByMode: Record<string, any>
+  resolvedValue?: any
+  collectionName?: string
+  collectionKey?: string
 }
 
 export interface SelectedCollectionData extends VariableCollectionData {
@@ -115,31 +118,4 @@ export interface LibraryVariables {
 export interface LibraryVariablesHandler extends EventHandler {
   name: 'LIBRARY_VARIABLES_LOADED'
   handler: (variables: Array<LibraryVariables>) => void
-}
-
-export interface SetFigmaApiKeyHandler extends EventHandler {
-  name: 'SET_FIGMA_API_KEY'
-  handler: (apiKey: string) => void
-}
-
-export interface ApiKeyUpdatedHandler extends EventHandler {
-  name: 'API_KEY_UPDATED'
-  handler: (success: boolean) => void
-}
-
-export interface ResolvedVariableValue {
-  variableId: string;
-  name: string;
-  value: any;
-  resolvedType: VariableResolvedDataType;
-}
-
-export interface FetchVariableValuesHandler extends EventHandler {
-  name: 'FETCH_VARIABLE_VALUES'
-  handler: () => void
-}
-
-export interface VariableValuesLoadedHandler extends EventHandler {
-  name: 'VARIABLE_VALUES_LOADED'
-  handler: (values: ResolvedVariableValue[]) => void
 }
