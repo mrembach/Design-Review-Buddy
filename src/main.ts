@@ -11,7 +11,11 @@ import {
   VariableCollectionData,
   SelectedCollectionData,
   AnalysisResult,
-  NodeProperty
+  NodeProperty,
+  LibraryVariables,
+  LibraryVariablesHandler,
+  LibraryVariable,
+  VariableResolvedDataType
 } from './types'
 
 // Store collections data in the main context
@@ -474,6 +478,116 @@ function analyzeNodeAndChildren(
   return results
 }
 
+// Helper function to fetch variables from a collection
+async function getCollectionVariables(collection: VariableCollectionData): Promise<LibraryVariables | null> {
+  try {
+    console.log('Getting collection by ID:', collection.id)
+    const figmaCollection = figma.variables.getVariableCollectionById(collection.id)
+    if (!figmaCollection) {
+      console.log('No collection found for ID:', collection.id)
+      return null
+    }
+    
+    console.log('Found collection:', figmaCollection)
+    console.log('Variable IDs:', figmaCollection.variableIds)
+
+    const variables = figmaCollection.variableIds.map(id => {
+      console.log('Getting variable by ID:', id)
+      const variable = figma.variables.getVariableById(id)
+      if (!variable) {
+        console.log('No variable found for ID:', id)
+        return null
+      }
+      console.log('Found variable:', variable)
+      return {
+        name: variable.name,
+        type: variable.resolvedType,
+        value: variable.valuesByMode,
+        id: variable.id
+      }
+    }).filter(v => v !== null)
+
+    console.log('Processed variables:', variables)
+
+    return {
+      collectionName: collection.name,
+      collectionId: collection.id,
+      libraryName: collection.libraryName || '',
+      variables: variables as any[]
+    }
+  } catch (error) {
+    console.error('Error fetching variables:', error)
+    return null
+  }
+}
+
+// Function to fetch all library variables
+async function fetchLibraryVariables(collectionId: string): Promise<LibraryVariables[]> {
+  try {
+    // Get all available library collections
+    const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
+    
+    // Find the collection with the matching key
+    const collection = collections.find(c => c.key === collectionId)
+    if (!collection) {
+      throw new Error(`Collection with key ${collectionId} not found`)
+    }
+
+    // Get variables from the collection
+    const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
+    
+    // Return as an array with a single LibraryVariables object
+    return [{
+      collectionName: collection.name || '',
+      collectionId: collection.key,
+      libraryName: collection.libraryName || '',
+      variables: variables.map((variable: any): LibraryVariable => {
+        try {
+          // Ensure we have a valid resolvedType with a default fallback
+          let resolvedType = (variable.resolvedType || 'COLOR') as VariableResolvedDataType
+          if (!['COLOR', 'FLOAT', 'STRING', 'BOOLEAN'].includes(resolvedType)) {
+            resolvedType = 'COLOR' // Default to COLOR if invalid type
+          }
+
+          // Safely create the LibraryVariable object with defensive checks
+          return {
+            id: variable.key || '',
+            name: variable.name || '',
+            key: variable.key || '',
+            resolvedType,
+            valuesByMode: typeof variable.valuesByMode === 'object' ? variable.valuesByMode : {},
+            defaultValue: variable.defaultValue ?? null,
+            description: typeof variable.description === 'string' ? variable.description : '',
+            hiddenFromPublishing: Boolean(variable.hiddenFromPublishing),
+            remote: Boolean(variable.remote),
+            variableCollectionId: typeof variable.variableCollectionId === 'string' ? variable.variableCollectionId : '',
+            scopes: Array.isArray(variable.scopes) ? variable.scopes : []
+          }
+        } catch (error) {
+          console.error('Error processing variable:', error, variable)
+          // Return a safe default object if processing fails
+          return {
+            id: '',
+            name: 'Error processing variable',
+            key: '',
+            resolvedType: 'COLOR',
+            valuesByMode: {},
+            defaultValue: null,
+            description: '',
+            hiddenFromPublishing: false,
+            remote: false,
+            variableCollectionId: '',
+            scopes: []
+          }
+        }
+      })
+    }]
+  } catch (error) {
+    console.error('Error fetching library variables:', error)
+    throw error
+  }
+}
+
 export default async function () {
   console.log('=== Plugin Initialization ===')
   
@@ -493,7 +607,7 @@ export default async function () {
     
     // Format the collections data for the UI
     collectionsData = libraryCollections.map(collection => ({
-      id: collection.key,
+      id: collection.key.split('/')[0], // Get the base collection ID without the mode
       name: collection.name,
       key: collection.key,
       libraryName: collection.libraryName
@@ -514,36 +628,55 @@ export default async function () {
     // Handle collection selection
     on<CollectionSelectedHandler>('COLLECTION_SELECTED', async function (collectionId: string) {
       console.log('\n=== Collection Selected ===')
-      const collection = collectionsData.find(c => c.id === collectionId)
-      if (collection) {
-        try {
-          console.log('Collection:', {
-            name: collection.name,
-            library: collection.libraryName
-          })
-          
-          const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collectionId)
-          selectedCollection = {
-            ...collection,
-            variables: variables.map(variable => ({
-              id: variable.key,
-              name: variable.name,
-              key: variable.key,
-              type: variable.resolvedType,
-              values: (variable as any).values || {}
-            }))
-          }
-          
-          console.log('Variables Loaded:', {
-            count: selectedCollection.variables?.length || 0,
-            types: selectedCollection.variables ? 
-              Array.from(new Set(selectedCollection.variables.map(v => v.type))) : 
-              []
-          })
-        } catch (error) {
-          console.error('Error loading collection:', error)
-          figma.notify('Error loading variables for collection', { error: true })
+      try {
+        const collection = collectionsData.find(c => c.id === collectionId)
+        if (!collection) {
+          console.error('Collection not found:', collectionId)
+          return
         }
+
+        console.log('Collection:', {
+          name: collection.name,
+          library: collection.libraryName
+        })
+        
+        const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
+        if (!Array.isArray(variables)) {
+          console.error('Variables is not an array:', variables)
+          return
+        }
+
+        selectedCollection = {
+          ...collection,
+          variables: variables.map(variable => {
+            if (!variable) {
+              console.log('Skipping null/undefined variable')
+              return null
+            }
+            try {
+              return {
+                id: variable.key || '',
+                name: variable.name || '',
+                key: variable.key || '',
+                type: variable.resolvedType || 'COLOR',
+                values: (variable as any).values || {}
+              }
+            } catch (err) {
+              console.error('Error processing variable:', err, variable)
+              return null
+            }
+          }).filter(v => v !== null)
+        }
+        
+        console.log('Variables Loaded:', {
+          count: selectedCollection.variables?.length || 0,
+          types: selectedCollection.variables ? 
+            Array.from(new Set(selectedCollection.variables.map(v => v.type))) : 
+            []
+        })
+      } catch (error) {
+        console.error('Error loading collection:', error)
+        figma.notify('Error loading variables for collection', { error: true })
       }
     })
 
@@ -559,7 +692,7 @@ export default async function () {
     })
 
     // Handle frame analysis
-    on<AnalyzeFrameHandler>('ANALYZE_FRAME', function (exceptions: string) {
+    on<AnalyzeFrameHandler>('ANALYZE_FRAME', async function (exceptions: string) {
       if (!hasSingleFrameSelected || !selectedCollection) {
         return
       }
@@ -582,6 +715,10 @@ export default async function () {
       
       // Send results to UI
       emit<AnalysisResultsHandler>('ANALYSIS_RESULTS', makeSerializable(results))
+      
+      // After sending analysis results, fetch library variables
+      const libraryVariables = await fetchLibraryVariables(selectedCollection.id)
+      emit<LibraryVariablesHandler>('LIBRARY_VARIABLES_LOADED', libraryVariables)
     })
     
     // Handle close

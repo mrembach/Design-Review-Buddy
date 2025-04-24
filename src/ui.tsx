@@ -36,7 +36,9 @@ import {
   AnalysisResultsHandler,
   AnalysisResult,
   NodeProperty,
-  SelectLayerHandler
+  SelectLayerHandler,
+  LibraryVariables,
+  LibraryVariablesHandler
 } from './types'
 
 function Plugin() {
@@ -51,7 +53,9 @@ function Plugin() {
   const [showFilteredView, setShowFilteredView] = useState<boolean>(false)
   const [excludeLockedLayers, setExcludeLockedLayers] = useState<boolean>(true)
   const [excludeHiddenLayers, setExcludeHiddenLayers] = useState<boolean>(true)
+  const [hideAllResults, setHideAllResults] = useState<boolean>(false)
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [libraryVariables, setLibraryVariables] = useState<Array<LibraryVariables>>([])
 
   // Handle receiving variable collections from the main context
   useEffect(function () {
@@ -112,6 +116,17 @@ function Plugin() {
     )
   }, [])
 
+  // Handle library variables
+  useEffect(function () {
+    return on<LibraryVariablesHandler>(
+      'LIBRARY_VARIABLES_LOADED',
+      function (variables: Array<LibraryVariables>) {
+        console.log('Received library variables:', variables)
+        setLibraryVariables(variables)
+      }
+    )
+  }, [])
+
   const handleCollectionChange = useCallback(function (event: Event) {
     const select = event.target as HTMLSelectElement
     const newCollectionId = select.value
@@ -137,6 +152,21 @@ function Plugin() {
   const handleFilteredViewToggle = useCallback(function (event: Event) {
     const toggle = event.target as HTMLInputElement
     setShowFilteredView(toggle.checked)
+  }, [])
+
+  const handleHideAllResultsToggle = useCallback(function (event: Event) {
+    const toggle = event.target as HTMLInputElement
+    setHideAllResults(toggle.checked)
+  }, [])
+
+  const handleExcludeLockedLayersToggle = useCallback(function (event: Event) {
+    const toggle = event.target as HTMLInputElement
+    setExcludeLockedLayers(toggle.checked)
+  }, [])
+
+  const handleExcludeHiddenLayersToggle = useCallback(function (event: Event) {
+    const toggle = event.target as HTMLInputElement
+    setExcludeHiddenLayers(toggle.checked)
   }, [])
 
   const handleLayerToggle = useCallback(function (nodeId: string, event: Event) {
@@ -190,7 +220,10 @@ function Plugin() {
         const groupedProps: { [key: string]: Array<NodeProperty> } = {}
         
         result.properties.forEach(prop => {
-          if (!prop.isMismatched) return
+          // Skip if we're hiding matches and this is a match
+          if (hideAllResults && !prop.isMismatched) return
+          // Skip if we're only showing mismatches and this is a match
+          if (showOnlyMismatches && !prop.isMismatched) return
 
           let issueType = ''
           // Check for actual padding properties
@@ -237,7 +270,7 @@ function Plugin() {
       })
 
     return issues
-  }, [excludeLockedLayers, excludeHiddenLayers])
+  }, [excludeLockedLayers, excludeHiddenLayers, hideAllResults, showOnlyMismatches])
 
   // Helper function to calculate statistics
   const calculateStats = (results: Array<AnalysisResult>) => {
@@ -318,6 +351,9 @@ function Plugin() {
   // Filter results based on toggle states
   const filteredResults = analysisResults
     .filter(result => {
+      // If hide all results is enabled, return no results
+      if (hideAllResults) return false
+      
       // Apply locked layer filter
       if (excludeLockedLayers && result.isLocked) {
         return false
@@ -377,6 +413,29 @@ function Plugin() {
     })
     
     return uniqueMismatches.size
+  }
+
+  // Helper function to format variable value
+  const formatVariableValue = (value: any): string => {
+    if (!value) return 'No value'
+    if (typeof value === 'object') {
+      // Handle mode values
+      const values = Object.values(value)
+      if (!values.length) return 'No value'
+      const modeValues = values[0]
+      if (!modeValues || typeof modeValues !== 'object') return 'No value'
+      
+      if ('r' in modeValues) {
+        // It's a color
+        const color = modeValues as { r: number; g: number; b: number }
+        const r = Math.round(color.r * 255)
+        const g = Math.round(color.g * 255)
+        const b = Math.round(color.b * 255)
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+      }
+      return JSON.stringify(modeValues)
+    }
+    return String(value)
   }
 
   return (
@@ -450,18 +509,15 @@ function Plugin() {
                 Show only mismatches
               </Toggle>
               <Toggle onChange={handleFilteredViewToggle} value={showFilteredView}>
-                Filtered view
+                Show filtered view
               </Toggle>
-              <Toggle 
-                onChange={(event) => setExcludeLockedLayers(event.currentTarget.checked)} 
-                value={excludeLockedLayers}
-              >
+              <Toggle onChange={handleHideAllResultsToggle} value={hideAllResults}>
+                Hide all results
+              </Toggle>
+              <Toggle onChange={handleExcludeLockedLayersToggle} value={excludeLockedLayers}>
                 Exclude locked layers
               </Toggle>
-              <Toggle 
-                onChange={(event) => setExcludeHiddenLayers(event.currentTarget.checked)} 
-                value={excludeHiddenLayers}
-              >
+              <Toggle onChange={handleExcludeHiddenLayersToggle} value={excludeHiddenLayers}>
                 Exclude hidden layers
               </Toggle>
             </Stack>
@@ -641,6 +697,41 @@ function Plugin() {
               ))}
             </Stack>
           )}
+        </Fragment>
+      )}
+      
+      {analysisResults.length > 0 && !showFilteredView && (
+        <Fragment>
+          <Divider />
+          <VerticalSpace space="large" />
+          <Text style="bold">Library Variables:</Text>
+          <VerticalSpace space="medium" />
+          
+          {libraryVariables.map((library) => (
+            <Fragment key={library.collectionId}>
+              <Stack space="small">
+                <Text style="bold">{library.collectionName}</Text>
+                <Text style="secondary">{library.libraryName}</Text>
+                
+                <Stack space="medium" style={{ marginLeft: '16px' }}>
+                  {library.variables.map((variable) => (
+                    <Stack key={variable.id} space="extraSmall" style={{ 
+                      backgroundColor: 'var(--figma-color-bg-secondary)',
+                      padding: '8px',
+                      borderRadius: '6px'
+                    }}>
+                      <Text>{variable.name}</Text>
+                      <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
+                        <Text style="secondary">Type: {variable.resolvedType}</Text>
+                        <Text style="secondary">Value: {formatVariableValue(variable.valuesByMode)}</Text>
+                      </Stack>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Stack>
+              <VerticalSpace space="large" />
+            </Fragment>
+          ))}
         </Fragment>
       )}
       

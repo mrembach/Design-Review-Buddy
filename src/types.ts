@@ -88,3 +88,31 @@ export interface SelectLayerHandler extends EventHandler {
   name: 'SELECT_LAYER'
   handler: (nodeId: string) => void
 }
+
+export type VariableResolvedDataType = 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';
+
+export interface LibraryVariable {
+  id: string
+  name: string
+  key: string
+  resolvedType: VariableResolvedDataType
+  valuesByMode: { [modeId: string]: any }
+  defaultValue: any
+  description: string
+  hiddenFromPublishing: boolean
+  remote: boolean
+  variableCollectionId: string
+  scopes: string[]
+}
+
+export interface LibraryVariables {
+  collectionName: string;
+  collectionId: string;
+  libraryName: string;
+  variables: Array<LibraryVariable>;
+}
+
+export interface LibraryVariablesHandler extends EventHandler {
+  name: 'LIBRARY_VARIABLES_LOADED'
+  handler: (variables: Array<LibraryVariables>) => void
+}
