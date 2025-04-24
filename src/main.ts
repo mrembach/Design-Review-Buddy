@@ -569,13 +569,13 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
             name: variable.name || '',
             key: variable.key || '',
             resolvedType,
-            valuesByMode: typeof variable.valuesByMode === 'object' ? variable.valuesByMode : {},
-            defaultValue: variable.defaultValue ?? null,
-            description: typeof variable.description === 'string' ? variable.description : '',
-            hiddenFromPublishing: Boolean(variable.hiddenFromPublishing),
-            remote: Boolean(variable.remote),
-            variableCollectionId: typeof variable.variableCollectionId === 'string' ? variable.variableCollectionId : '',
-            scopes: Array.isArray(variable.scopes) ? variable.scopes : []
+            valuesByMode: {}, // Empty object as placeholder since API variables don't have valuesByMode
+            defaultValue: null,
+            description: '',
+            hiddenFromPublishing: false,
+            remote: false,
+            variableCollectionId: '',
+            scopes: []
           }
         } catch (error) {
           console.error('Error processing variable:', error, variable)
@@ -676,19 +676,14 @@ export default async function () {
               return null
             }
             try {
-              // Ensure we extract the correct valuesByMode data
-              let modes = {}
-              if ((variable as any).valuesByMode && typeof (variable as any).valuesByMode === 'object') {
-                // Properly copy the valuesByMode object
-                modes = Object.assign({}, (variable as any).valuesByMode)
-              }
-              
+              // Library variables from the API don't have valuesByMode property
+              // Just provide a placeholder empty object
               return {
                 id: variable.key || '',
                 name: variable.name || '',
                 key: variable.key || '',
                 type: variable.resolvedType || 'COLOR',
-                valuesByMode: modes
+                valuesByMode: {} // Empty object as placeholder since API variables don't have valuesByMode
               }
             } catch (err) {
               console.error('Error processing variable:', err, variable)
