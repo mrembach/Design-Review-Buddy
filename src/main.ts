@@ -617,25 +617,76 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
 
   try {
     console.log('Fetching variable values from REST API...')
+    console.log('Selected collection:', selectedCollection)
 
-    // Extract file key from the collection key (first part before the colon)
-    const fileKey = selectedCollection.key.split(':')[0]
+    // Log all components of the collection key to better understand the format
+    if (selectedCollection.key) {
+      console.log('Collection key parts:', selectedCollection.key.split(':'))
+    }
+
+    // Try different approaches to get a valid file key
+    let fileKey = ''
+    
+    // Option 1: Extract from the URL if possible
+    const figmaUrl = figma.root.getPluginData('figmaUrl') || figma.currentPage.parent?.name
+    if (figmaUrl && figmaUrl.includes('figma.com/file/')) {
+      const fileKeyMatch = figmaUrl.match(/figma\.com\/file\/([^\/]+)/)
+      if (fileKeyMatch && fileKeyMatch[1]) {
+        fileKey = fileKeyMatch[1]
+        console.log('Extracted file key from URL:', fileKey)
+      }
+    }
+    
+    // Option 2: Use the document ID if option 1 failed
     if (!fileKey) {
-      console.error('Could not extract file key from collection key:', selectedCollection.key)
-      return []
+      fileKey = figma.root.id
+      console.log('Using document ID as file key:', fileKey)
     }
 
     const resolvedValues: ResolvedVariableValue[] = []
 
     // For each variable in the collection, fetch its values
     if (selectedCollection.variables && selectedCollection.variables.length > 0) {
+      console.log('Processing variables:', selectedCollection.variables.slice(0, 3))
+      
+      // Sample debug output for the first few variables
+      for (let i = 0; i < Math.min(3, selectedCollection.variables.length); i++) {
+        const v = selectedCollection.variables[i]
+        console.log(`Variable ${i+1} details:`, {
+          id: v.id,
+          key: v.key,
+          name: v.name,
+          type: v.type
+        })
+      }
+
       // Only process a reasonable number of variables to avoid rate limiting
-      const variablesToFetch = selectedCollection.variables.slice(0, 50)
+      const variablesToFetch = selectedCollection.variables.slice(0, 10)
 
       for (const variable of variablesToFetch) {
         try {
+          // Try both variable.id and variable.key to see which one works
+          // The API might expect either one depending on how variables are structured
+          const variableId = variable.key || variable.id
+          
+          if (!variableId) {
+            console.error('Variable has no ID:', variable)
+            continue
+          }
+          
+          // Get collection ID (try both the ID from the collection or one from the variable)
+          const collectionId = selectedCollection.id
+
+          // Log what we're using to construct the URL
+          console.log('API request components:', {
+            fileKey,
+            collectionId,
+            variableId,
+            variableName: variable.name
+          })
+
           // Construct the REST API URL
-          const url = `https://api.figma.com/v1/variables/${fileKey}/${selectedCollection.id}/${variable.id}/values`
+          const url = `https://api.figma.com/v1/variables/${fileKey}/${collectionId}/${variableId}/values`
           console.log('Fetching variable values from:', url)
 
           // Make the REST API request
@@ -647,12 +698,13 @@ async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]
           })
 
           if (!response.ok) {
-            console.error(`API request failed for ${variable.name}:`, response.status, response.statusText)
+            const errorText = await response.text().catch(() => 'No error text available')
+            console.error(`API request failed for ${variable.name} (${response.status}):`, errorText)
             continue
           }
 
           const data = await response.json()
-          console.log('Variable values response:', data)
+          console.log('Variable values response for', variable.name, ':', data)
 
           // Extract the value from the first mode (we could make this more sophisticated later)
           const modeValues = data.values
