@@ -563,72 +563,50 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
     const collections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
     
     // Find the collection with the matching key
-    const collection = collections.find(c => c.key === collectionId)
-    if (!collection) {
+    const selectedCollection = collections.find(c => c.key === collectionId)
+    if (!selectedCollection) {
       throw new Error(`Collection with key ${collectionId} not found`)
     }
-
-    // Get variables from the collection
-    const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
     
-    // DEBUG: Log the first variable to see its structure
-    if (variables.length > 0) {
-      console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
-      console.log('valuesByMode structure:', (variables[0] as any).valuesByMode)
-    }
-
-    // Map variables to LibraryVariable type
-    let mappedVariables = variables.map((variable: any): LibraryVariable => {
-      try {
-        // Ensure we have a valid resolvedType with a default fallback
-        let resolvedType = (variable.resolvedType || 'COLOR') as VariableResolvedDataType
-        if (!['COLOR', 'FLOAT', 'STRING', 'BOOLEAN'].includes(resolvedType)) {
-          resolvedType = 'COLOR' // Default to COLOR if invalid type
-        }
-
-        // Safely create the LibraryVariable object with defensive checks
-        return {
-          id: variable.key || '',
-          name: variable.name || '',
-          key: variable.key || '',
-          resolvedType,
-          valuesByMode: {}, // Empty object as placeholder since API variables don't have valuesByMode
-          defaultValue: null,
-          description: '',
-          hiddenFromPublishing: false,
-          remote: false,
-          variableCollectionId: '',
-          scopes: []
-        }
-      } catch (error) {
-        console.error('Error processing variable:', error, variable)
-        // Return a safe default object if processing fails
-        return {
-          id: '',
-          name: 'Error processing variable',
-          key: '',
-          resolvedType: 'COLOR',
-          valuesByMode: {},
-          defaultValue: null,
-          description: '',
-          hiddenFromPublishing: false,
-          remote: false,
-          variableCollectionId: '',
-          scopes: []
-        }
+    // Find all collections from the same library (to handle dependencies)
+    const relatedCollections = collections.filter(c => 
+      c.libraryName === selectedCollection.libraryName
+    )
+    
+    console.log(`Found ${relatedCollections.length} related collections from library ${selectedCollection.libraryName}:`, 
+      relatedCollections.map(c => c.name))
+    
+    // Get variables from ALL related collections to handle dependencies
+    const allVariables = await resolveLibraryVariableValues([], collectionId)
+    
+    // Group variables by collection
+    const variablesByCollection = new Map<string, any[]>()
+    
+    allVariables.forEach(variable => {
+      if (!variablesByCollection.has(variable.collectionKey)) {
+        variablesByCollection.set(variable.collectionKey, [])
       }
-    });
-
-    // Resolve actual values for the variables
-    mappedVariables = await resolveLibraryVariableValues(mappedVariables, collection.key);
-
-    // Return as an array with a single LibraryVariables object
-    return [{
-      collectionName: collection.name || '',
-      collectionId: collection.key,
-      libraryName: collection.libraryName || '',
-      variables: mappedVariables
-    }]
+      variablesByCollection.get(variable.collectionKey)?.push(variable)
+    })
+    
+    // Create a LibraryVariables object for each collection
+    const result: LibraryVariables[] = []
+    
+    // Use Array.from() to convert Map entries to an array for iteration
+    Array.from(variablesByCollection.entries()).forEach(([collectionKey, collectionVars]) => {
+      const collection = relatedCollections.find(c => c.key === collectionKey)
+      if (collection) {
+        result.push({
+          collectionName: collection.name || '',
+          collectionId: collection.key,
+          libraryName: collection.libraryName || '',
+          variables: collectionVars
+        })
+      }
+    })
+    
+    console.log(`Returning ${result.length} collections with a total of ${allVariables.length} variables`)
+    return result
   } catch (error) {
     console.error('Error fetching library variables:', error)
     throw error
@@ -680,23 +658,28 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
     
     const allLibraryVariablesResults = await Promise.all(allLibraryVariablePromises)
     
-    // Create a map of all variables by key for easy lookup
-    const variablesByKey = new Map()
-    
+    // Create a flat array of all variables from all collections
+    let allVariables: any[] = []
     allLibraryVariablesResults.forEach(result => {
-      result.variables.forEach(variable => {
-        variablesByKey.set(variable.key, {
-          variable,
-          collection: result.collection
-        })
-      })
+      // Add collection info to each variable
+      const varsWithCollection = result.variables.map(variable => ({
+        ...variable,
+        collectionName: result.collection.name,
+        collectionKey: result.collection.key
+      }))
+      allVariables = allVariables.concat(varsWithCollection)
     })
     
-    console.log(`Loaded ${variablesByKey.size} total variables from related collections`)
+    console.log(`Loaded ${allVariables.length} total variables from all related collections`)
     
-    // Since we can't resolve the actual values without local instances, we'll use static 
-    // placeholder values based on the variable type
-    const resolvedVariables = variables.map(variable => {
+    // Create a map for quick lookup
+    const variablesByKey = new Map()
+    allVariables.forEach(variable => {
+      variablesByKey.set(variable.key, variable)
+    })
+    
+    // Process ALL variables from related collections, not just the ones from the selected collection
+    const resolvedVariables = allVariables.map(variable => {
       try {
         // Determine a sensible placeholder value based on the variable type
         let placeholderValue
@@ -750,7 +733,7 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
       }
     })
     
-    console.log('Variable resolution complete with placeholder values')
+    console.log(`Processed ${resolvedVariables.length} variables with placeholder values`)
     return resolvedVariables
   } catch (error) {
     console.error('Error resolving library variable values:', error)
