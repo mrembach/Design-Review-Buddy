@@ -15,18 +15,12 @@ import {
   LibraryVariables,
   LibraryVariablesHandler,
   LibraryVariable,
-  VariableResolvedDataType,
-  SetFigmaApiKeyHandler,
-  ApiKeyUpdatedHandler,
-  FetchVariableValuesHandler,
-  VariableValuesLoadedHandler,
-  ResolvedVariableValue
+  VariableResolvedDataType
 } from './types'
 
 // Store collections data in the main context
 let collectionsData: Array<VariableCollectionData> = []
 let selectedCollection: SelectedCollectionData | null = null
-let figmaApiKey: string | null = null
 
 // Track frame selection state
 let hasSingleFrameSelected = false
@@ -38,7 +32,13 @@ function findMatchingVariable(value: any, type: string): { id: string; name: str
   const matchingVariable = selectedCollection.variables.find(variable => {
     if (variable.type !== type) return false
     
-    // Handle different value types
+    // First check if the variable has a resolved value
+    if ('resolvedValue' in variable) {
+      console.log(`Checking variable ${variable.name} resolved value:`, variable.resolvedValue);
+      return variable.resolvedValue === value;
+    }
+    
+    // Handle different value types as fallback
     if (type === 'COLOR') {
       return JSON.stringify(variable.valuesByMode) === JSON.stringify(value)
     }
@@ -51,7 +51,7 @@ function findMatchingVariable(value: any, type: string): { id: string; name: str
   return {
     id: matchingVariable.id,
     name: matchingVariable.name,
-    value: matchingVariable.valuesByMode
+    value: 'resolvedValue' in matchingVariable ? matchingVariable.resolvedValue : matchingVariable.valuesByMode
   }
 }
 
@@ -377,6 +377,17 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         if (suggestedVar) {
           property.suggestedVariable = makeSerializable(suggestedVar)
           console.log('Found suggested variable:', suggestedVar)
+        } else {
+          // If no exact match found, look for the closest number variable
+          const closestVar = findClosestNumberVariable(property.value)
+          if (closestVar && closestVar.difference < 2) { // Only suggest if difference is small
+            property.suggestedVariable = makeSerializable({
+              id: closestVar.id,
+              name: closestVar.name,
+              value: closestVar.value
+            })
+            console.log('Found closest variable:', closestVar)
+          }
         }
       }
       
@@ -427,6 +438,16 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         const suggestedVar = findMatchingVariable(value, 'FLOAT')
         if (suggestedVar) {
           property.suggestedVariable = makeSerializable(suggestedVar)
+        } else {
+          // If no exact match found, look for the closest number variable
+          const closestVar = findClosestNumberVariable(value)
+          if (closestVar && closestVar.difference < 2) { // Only suggest if difference is small
+            property.suggestedVariable = makeSerializable({
+              id: closestVar.id,
+              name: closestVar.name,
+              value: closestVar.value
+            })
+          }
         }
       }
       
@@ -556,51 +577,57 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
       console.log('valuesByMode structure:', (variables[0] as any).valuesByMode)
     }
 
+    // Map variables to LibraryVariable type
+    let mappedVariables = variables.map((variable: any): LibraryVariable => {
+      try {
+        // Ensure we have a valid resolvedType with a default fallback
+        let resolvedType = (variable.resolvedType || 'COLOR') as VariableResolvedDataType
+        if (!['COLOR', 'FLOAT', 'STRING', 'BOOLEAN'].includes(resolvedType)) {
+          resolvedType = 'COLOR' // Default to COLOR if invalid type
+        }
+
+        // Safely create the LibraryVariable object with defensive checks
+        return {
+          id: variable.key || '',
+          name: variable.name || '',
+          key: variable.key || '',
+          resolvedType,
+          valuesByMode: {}, // Empty object as placeholder since API variables don't have valuesByMode
+          defaultValue: null,
+          description: '',
+          hiddenFromPublishing: false,
+          remote: false,
+          variableCollectionId: '',
+          scopes: []
+        }
+      } catch (error) {
+        console.error('Error processing variable:', error, variable)
+        // Return a safe default object if processing fails
+        return {
+          id: '',
+          name: 'Error processing variable',
+          key: '',
+          resolvedType: 'COLOR',
+          valuesByMode: {},
+          defaultValue: null,
+          description: '',
+          hiddenFromPublishing: false,
+          remote: false,
+          variableCollectionId: '',
+          scopes: []
+        }
+      }
+    });
+
+    // Resolve actual values for the variables
+    mappedVariables = await resolveLibraryVariableValues(mappedVariables, collection.key);
+
     // Return as an array with a single LibraryVariables object
     return [{
       collectionName: collection.name || '',
       collectionId: collection.key,
       libraryName: collection.libraryName || '',
-      variables: variables.map((variable: any): LibraryVariable => {
-        try {
-          // Ensure we have a valid resolvedType with a default fallback
-          let resolvedType = (variable.resolvedType || 'COLOR') as VariableResolvedDataType
-          if (!['COLOR', 'FLOAT', 'STRING', 'BOOLEAN'].includes(resolvedType)) {
-            resolvedType = 'COLOR' // Default to COLOR if invalid type
-          }
-
-          // Safely create the LibraryVariable object with defensive checks
-          return {
-            id: variable.key || '',
-            name: variable.name || '',
-            key: variable.key || '',
-            resolvedType,
-            valuesByMode: {}, // Empty object as placeholder since API variables don't have valuesByMode
-            defaultValue: null,
-            description: '',
-            hiddenFromPublishing: false,
-            remote: false,
-            variableCollectionId: '',
-            scopes: []
-          }
-        } catch (error) {
-          console.error('Error processing variable:', error, variable)
-          // Return a safe default object if processing fails
-          return {
-            id: '',
-            name: 'Error processing variable',
-            key: '',
-            resolvedType: 'COLOR',
-            valuesByMode: {},
-            defaultValue: null,
-            description: '',
-            hiddenFromPublishing: false,
-            remote: false,
-            variableCollectionId: '',
-            scopes: []
-          }
-        }
-      })
+      variables: mappedVariables
     }]
   } catch (error) {
     console.error('Error fetching library variables:', error)
@@ -608,169 +635,129 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
   }
 }
 
-// Function to fetch variable values using the REST API
-async function fetchVariableValuesFromRestAPI(): Promise<ResolvedVariableValue[]> {
-  if (!figmaApiKey || !selectedCollection) {
-    console.error('Cannot fetch variable values: Missing API key or selected collection')
-    return []
-  }
-
+// Function to resolve library variable values using resolveForConsumer()
+async function resolveLibraryVariableValues(variables: any[], collectionId: string): Promise<any[]> {
   try {
-    console.log('Fetching variable values from REST API...')
-    console.log('Selected collection:', selectedCollection)
+    console.log('Resolving actual values for library variables...')
+    // Create a temporary node to use as the consumer
+    const tempNode = figma.createFrame()
     
-    // Extract file key from the variable collection information
-    // Collection keys typically follow pattern: "LIBRARY_FILE_KEY:COLLECTION_ID:MODE_ID"
+    // Try a simpler approach - since we can't easily match local variables to remote ones,
+    // we'll just create a temporary frame and set it to the default mode for each collection
     
-    let fileKey = ''
-    if (selectedCollection.key) {
-      console.log('Collection key:', selectedCollection.key)
-      const keyParts = selectedCollection.key.split(':')
-      if (keyParts.length > 0) {
-        fileKey = keyParts[0]
-        console.log('Extracted file key from collection key:', fileKey)
-      }
-    }
+    // This approach assumes the user has the library variables enabled in their document
+    // If they're doing design system checks, this is a reasonable assumption
     
-    // If we still don't have a valid file key, try from library name
-    if (!fileKey || fileKey === '0' || fileKey === '0:0') {
-      // For library collections, we need to find the library's file key
-      const libraryName = selectedCollection.libraryName
-      console.log('Looking for file key using library name:', libraryName)
-      
-      // Do a direct lookup in the collection list for related collections
-      const matchingCollection = collectionsData.find(c => 
-        c.libraryName === libraryName && c.key && c.key.includes(':')
-      )
-      
-      if (matchingCollection && matchingCollection.key) {
-        const keyParts = matchingCollection.key.split(':')
-        if (keyParts.length > 0) {
-          fileKey = keyParts[0]
-          console.log('Extracted file key from matching collection:', fileKey)
+    // Since we can't guarantee which local collections are available, we'll use a fallback strategy:
+    // 1. For each remote variable, try to get an exact match by ID (if library is published locally)
+    // 2. If not found, try to find a local variable with the same name
+    
+    const resolvedVariables = await Promise.all(variables.map(async (variable) => {
+      try {
+        // First try: Get variable directly by ID (if it's been published locally)
+        let localVariable = null
+        try {
+          if (variable.id) {
+            localVariable = figma.variables.getVariableById(variable.id)
+          }
+        } catch (err) {
+          console.log(`Variable ${variable.name} not found locally by ID, looking for name match`)
         }
-      }
-    }
-
-    // Validate the file key
-    if (!fileKey || fileKey === '0' || fileKey === '0:0') {
-      console.error('Could not find a valid file key for this library')
-      figma.notify('Could not find a valid file key for this library', { error: true })
-      return []
-    }
-
-    // Use the published variables endpoint with the correct file key
-    const url = `https://api.figma.com/v1/files/${fileKey}/variables/published`
-    console.log('Fetching published variables from:', url)
-    console.log('Using API key:', figmaApiKey ? `${figmaApiKey.substring(0, 4)}...` : 'No token')
-
-    // Make the REST API request
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'X-Figma-Token': figmaApiKey,
-        'Content-Type': 'application/json'
-      }
-    })
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No error text available')
-      console.error(`API request failed (${response.status}):`, errorText)
-      figma.notify(`API request failed (${response.status}): ${errorText.slice(0, 50)}`, { error: true })
-      return []
-    }
-
-    // Parse the response
-    const data = await response.json()
-    console.log('Published variables response:', data)
-
-    const resolvedValues: ResolvedVariableValue[] = []
-
-    // Process the variables from the API response
-    if (data && data.meta && data.meta.variables) {
-      // Extract variables from the response
-      const apiVariables = data.meta.variables
-      
-      // Log the first few variables to understand their structure
-      console.log('First few API variables:', 
-        Object.entries(apiVariables).slice(0, 3).map(([id, v]) => ({ id, details: v }))
-      )
-
-      // Map our local variables to the API variables
-      if (selectedCollection.variables && selectedCollection.variables.length > 0) {
-        // Only process a reasonable number of variables to avoid performance issues
-        const variablesToProcess = selectedCollection.variables.slice(0, 20)
-
-        for (const variable of variablesToProcess) {
-          try {
-            // For each local variable, try to find a matching API variable
-            // The key might match either the id or subscribed_id in the API
-            const variableId = variable.key || variable.id
-            let matchingApiVariable: Record<string, any> | null = null
+        
+        // If we have a match, resolve the value
+        if (localVariable) {
+          // We'll use the default mode (mode 0) of the variable's collection
+          const collection = figma.variables.getVariableCollectionById(localVariable.variableCollectionId)
+          
+          if (collection && collection.modes.length > 0) {
+            const modeId = collection.modes[0].modeId
+            tempNode.setExplicitVariableModeForCollection(collection, modeId)
             
-            // Search through API variables to find a match
-            for (const [apiVarId, apiVar] of Object.entries(apiVariables)) {
-              const apiVariable = apiVar as Record<string, any>
-              
-              // Check if this API variable matches our local variable
-              if (apiVariable.name === variable.name || 
-                  apiVarId === variableId || 
-                  apiVariable.key === variableId ||
-                  apiVariable.subscribed_id === variableId) {
-                matchingApiVariable = { id: apiVarId, ...apiVariable }
-                break
-              }
+            const resolved = localVariable.resolveForConsumer(tempNode)
+            
+            console.log(`Resolved ${variable.name}:`, resolved)
+            
+            // Add the resolved value to our variable object
+            return {
+              ...variable,
+              resolvedValue: resolved.value,
+              resolvedType: resolved.resolvedType,
+              // For display purposes - format based on type
+              displayValue: resolved.resolvedType === 'COLOR' && 
+                typeof resolved.value === 'object' && 
+                'r' in resolved.value && 
+                'g' in resolved.value && 
+                'b' in resolved.value
+                ? rgbToHex(resolved.value as { r: number; g: number; b: number })
+                : String(resolved.value)
             }
-
-            if (matchingApiVariable) {
-              console.log('Found matching API variable for', variable.name, ':', matchingApiVariable)
-              
-              // Extract the value (if available)
-              const value = matchingApiVariable.value || matchingApiVariable.valuesByMode
-              
-              if (value) {
-                resolvedValues.push({
-                  variableId: variable.id,
-                  name: variable.name,
-                  value,
-                  resolvedType: variable.type as VariableResolvedDataType
-                })
-              }
-            } else {
-              console.log('No matching API variable found for:', variable.name)
-            }
-          } catch (error) {
-            console.error(`Error processing variable ${variable.name}:`, error)
           }
         }
+        
+        // If we couldn't find or resolve the variable, return it unchanged
+        console.warn(`Unable to resolve value for variable ${variable.name}`)
+        return variable
+      } catch (err) {
+        console.error(`Failed to resolve variable ${variable.name}:`, err)
+        return variable
       }
-    } else if (data && data.error) {
-      console.error('API returned error:', data.error)
-      figma.notify(`API returned error: ${data.error}`, { error: true })
-    } else {
-      console.error('Unexpected API response format')
-      figma.notify('Unexpected API response format', { error: true })
-    }
-
-    return resolvedValues
+    }))
+    
+    // Clean up
+    tempNode.remove()
+    console.log('Variable resolution complete')
+    return resolvedVariables
   } catch (error) {
-    console.error('Error fetching variable values:', error)
-    figma.notify(`Error fetching variable values: ${error}`, { error: true })
-    return []
+    console.error('Error resolving library variable values:', error)
+    return variables
   }
+}
+
+// Helper function to find the closest number variable to a given value
+function findClosestNumberVariable(value: number): { id: string; name: string; value: any; difference: number } | undefined {
+  if (!selectedCollection?.variables) return undefined
+  
+  // Filter to only number variables
+  const numberVariables = selectedCollection.variables.filter(variable => {
+    // Check if it's a FLOAT type - either in type or resolvedType property
+    return variable.type === 'FLOAT' || 
+           ('resolvedType' in variable && variable.resolvedType === 'FLOAT');
+  });
+  
+  if (numberVariables.length === 0) return undefined;
+  
+  // Calculate the difference for each variable and sort by absolute difference
+  const sortedVariables = numberVariables.map(variable => {
+    // Get the variable's value (prefer resolved value if available)
+    const variableValue = 'resolvedValue' in variable ? 
+      variable.resolvedValue : 
+      variable.valuesByMode;
+      
+    // Calculate the difference
+    const difference = Math.abs(Number(variableValue) - value);
+    
+    return {
+      variable,
+      difference
+    };
+  }).sort((a, b) => a.difference - b.difference);
+  
+  // If we found a match, return the closest one
+  if (sortedVariables.length > 0) {
+    const closest = sortedVariables[0].variable;
+    return {
+      id: closest.id,
+      name: closest.name,
+      value: 'resolvedValue' in closest ? closest.resolvedValue : closest.valuesByMode,
+      difference: sortedVariables[0].difference
+    };
+  }
+  
+  return undefined;
 }
 
 export default async function () {
   console.log('=== Plugin Initialization ===')
-  
-  // Load saved API key if exists
-  try {
-    figmaApiKey = await figma.clientStorage.getAsync('figmaApiKey') as string;
-    console.log('Loaded saved API key:', figmaApiKey ? '****' + figmaApiKey.substring(figmaApiKey.length - 4) : 'None');
-  } catch (error) {
-    console.error('Error loading API key:', error);
-    figmaApiKey = null;
-  }
   
   // Show UI first, before any event emission
   showUI({
@@ -780,52 +767,6 @@ export default async function () {
   
   // Add a small delay to ensure UI is ready
   await new Promise(resolve => setTimeout(resolve, 100))
-  
-  // Handle API key updates
-  on<SetFigmaApiKeyHandler>('SET_FIGMA_API_KEY', async function (apiKey: string) {
-    console.log('Saving API key:', '****' + apiKey.substring(apiKey.length - 4));
-    try {
-      // Save API key to client storage
-      await figma.clientStorage.setAsync('figmaApiKey', apiKey);
-      figmaApiKey = apiKey;
-      emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', true);
-    } catch (error) {
-      console.error('Error saving API key:', error);
-      emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', false);
-    }
-  });
-  
-  // Handle variable values fetch request from UI
-  on<FetchVariableValuesHandler>('FETCH_VARIABLE_VALUES', async function () {
-    try {
-      if (!figmaApiKey) {
-        figma.notify('Please enter your Figma API key first', { error: true })
-        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
-        return
-      }
-
-      if (!selectedCollection) {
-        figma.notify('Please select a collection first', { error: true })
-        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
-        return
-      }
-
-      figma.notify('Fetching variable values...')
-      const resolvedValues = await fetchVariableValuesFromRestAPI()
-      
-      if (resolvedValues.length > 0) {
-        figma.notify(`Loaded values for ${resolvedValues.length} variables`)
-        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', resolvedValues)
-      } else {
-        figma.notify('No variable values found', { error: true })
-        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
-      }
-    } catch (error) {
-      console.error('Error in fetch variable values handler:', error)
-      figma.notify('Error fetching variable values', { error: true })
-      emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
-    }
-  });
   
   // Get all available library variable collections
   try {
