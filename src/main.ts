@@ -536,6 +536,12 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
     // Get variables from the collection
     const variables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
     
+    // DEBUG: Log the first variable to see its structure
+    if (variables.length > 0) {
+      console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
+      console.log('valuesByMode structure:', (variables[0] as any).valuesByMode)
+    }
+
     // Return as an array with a single LibraryVariables object
     return [{
       collectionName: collection.name || '',
@@ -646,6 +652,12 @@ export default async function () {
           return
         }
 
+        // DEBUG: Log the first variable to see its structure
+        if (variables.length > 0) {
+          console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
+          console.log('valuesByMode structure:', (variables[0] as any).valuesByMode)
+        }
+
         selectedCollection = {
           ...collection,
           variables: variables.map(variable => {
@@ -654,12 +666,19 @@ export default async function () {
               return null
             }
             try {
+              // Ensure we extract the correct valuesByMode data
+              let modes = {}
+              if ((variable as any).valuesByMode && typeof (variable as any).valuesByMode === 'object') {
+                // Properly copy the valuesByMode object
+                modes = Object.assign({}, (variable as any).valuesByMode)
+              }
+              
               return {
                 id: variable.key || '',
                 name: variable.name || '',
                 key: variable.key || '',
                 type: variable.resolvedType || 'COLOR',
-                valuesByMode: (variable as any).valuesByMode || {}
+                valuesByMode: modes
               }
             } catch (err) {
               console.error('Error processing variable:', err, variable)
