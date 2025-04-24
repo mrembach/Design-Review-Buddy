@@ -12,7 +12,7 @@ export interface VariableData {
   name: string
   key: string
   type: string
-  values: Record<string, any>
+  valuesByMode: Record<string, any>
 }
 
 export interface SelectedCollectionData extends VariableCollectionData {

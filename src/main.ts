@@ -34,10 +34,10 @@ function findMatchingVariable(value: any, type: string): { id: string; name: str
     
     // Handle different value types
     if (type === 'COLOR') {
-      return JSON.stringify(variable.values) === JSON.stringify(value)
+      return JSON.stringify(variable.valuesByMode) === JSON.stringify(value)
     }
     
-    return variable.values === value
+    return variable.valuesByMode === value
   })
 
   if (!matchingVariable) return undefined
@@ -45,7 +45,7 @@ function findMatchingVariable(value: any, type: string): { id: string; name: str
   return {
     id: matchingVariable.id,
     name: matchingVariable.name,
-    value: matchingVariable.values
+    value: matchingVariable.valuesByMode
   }
 }
 
@@ -659,7 +659,7 @@ export default async function () {
                 name: variable.name || '',
                 key: variable.key || '',
                 type: variable.resolvedType || 'COLOR',
-                values: (variable as any).values || {}
+                valuesByMode: (variable as any).valuesByMode || {}
               }
             } catch (err) {
               console.error('Error processing variable:', err, variable)
