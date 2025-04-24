@@ -38,7 +38,9 @@ import {
   NodeProperty,
   SelectLayerHandler,
   LibraryVariables,
-  LibraryVariablesHandler
+  LibraryVariablesHandler,
+  SetFigmaApiKeyHandler,
+  ApiKeyUpdatedHandler
 } from './types'
 
 function Plugin() {
@@ -56,6 +58,8 @@ function Plugin() {
   const [hideAllResults, setHideAllResults] = useState<boolean>(false)
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [libraryVariables, setLibraryVariables] = useState<Array<LibraryVariables>>([])
+  const [figmaApiKey, setFigmaApiKey] = useState<string>('')
+  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
 
   // Handle receiving variable collections from the main context
   useEffect(function () {
@@ -123,6 +127,32 @@ function Plugin() {
       function (variables: Array<LibraryVariables>) {
         console.log('Received library variables:', variables)
         setLibraryVariables(variables)
+      }
+    )
+  }, [])
+
+  // Handle API key changes
+  const handleApiKeyChange = useCallback(function (event: Event) {
+    const input = event.target as HTMLInputElement
+    setFigmaApiKey(input.value)
+  }, [])
+
+  // Handle API key submission
+  const handleApiKeySubmit = useCallback(function () {
+    if (!figmaApiKey.trim()) return
+    
+    setApiKeyStatus('saving')
+    emit<SetFigmaApiKeyHandler>('SET_FIGMA_API_KEY', figmaApiKey.trim())
+  }, [figmaApiKey])
+
+  // Listen for API key update response
+  useEffect(function () {
+    return on<ApiKeyUpdatedHandler>(
+      'API_KEY_UPDATED',
+      function (success: boolean) {
+        setApiKeyStatus(success ? 'success' : 'error')
+        // Reset status after 3 seconds
+        setTimeout(() => setApiKeyStatus('idle'), 3000)
       }
     )
   }, [])
@@ -450,6 +480,32 @@ function Plugin() {
       <Text style="bold">Design Review Buddy</Text>
       <VerticalSpace space="small" />
       <Text>Create and manage design reviews for your Figma projects.</Text>
+      
+      <VerticalSpace space="large" />
+      <Text>Figma API Key (for variable resolution):</Text>
+      <VerticalSpace space="extraSmall" />
+      <Stack space="extraSmall">
+        <Textbox
+          placeholder="Enter your Figma API key..."
+          value={figmaApiKey}
+          onChange={handleApiKeyChange}
+          password={true}
+        />
+        <Button
+          fullWidth
+          onClick={handleApiKeySubmit}
+          disabled={apiKeyStatus === 'saving'}
+        >
+          {apiKeyStatus === 'saving' ? 'Saving...' : 'Save API Key'}
+        </Button>
+        {apiKeyStatus === 'success' && (
+          <Text style={{ color: '#4CAF50' }}>API key saved successfully</Text>
+        )}
+        {apiKeyStatus === 'error' && (
+          <Text style={{ color: '#FF4D4D' }}>Failed to save API key</Text>
+        )}
+      </Stack>
+      
       <VerticalSpace space="large" />
       <Divider />
       <VerticalSpace space="large" />

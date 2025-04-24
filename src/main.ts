@@ -15,12 +15,15 @@ import {
   LibraryVariables,
   LibraryVariablesHandler,
   LibraryVariable,
-  VariableResolvedDataType
+  VariableResolvedDataType,
+  SetFigmaApiKeyHandler,
+  ApiKeyUpdatedHandler
 } from './types'
 
 // Store collections data in the main context
 let collectionsData: Array<VariableCollectionData> = []
 let selectedCollection: SelectedCollectionData | null = null
+let figmaApiKey: string | null = null
 
 // Track frame selection state
 let hasSingleFrameSelected = false
@@ -605,6 +608,15 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
 export default async function () {
   console.log('=== Plugin Initialization ===')
   
+  // Load saved API key if exists
+  try {
+    figmaApiKey = await figma.clientStorage.getAsync('figmaApiKey') as string;
+    console.log('Loaded saved API key:', figmaApiKey ? '****' + figmaApiKey.substring(figmaApiKey.length - 4) : 'None');
+  } catch (error) {
+    console.error('Error loading API key:', error);
+    figmaApiKey = null;
+  }
+  
   // Show UI first, before any event emission
   showUI({
     height: 400,
@@ -613,6 +625,20 @@ export default async function () {
   
   // Add a small delay to ensure UI is ready
   await new Promise(resolve => setTimeout(resolve, 100))
+  
+  // Handle API key updates
+  on<SetFigmaApiKeyHandler>('SET_FIGMA_API_KEY', async function (apiKey: string) {
+    console.log('Saving API key:', '****' + apiKey.substring(apiKey.length - 4));
+    try {
+      // Save API key to client storage
+      await figma.clientStorage.setAsync('figmaApiKey', apiKey);
+      figmaApiKey = apiKey;
+      emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', true);
+    } catch (error) {
+      console.error('Error saving API key:', error);
+      emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', false);
+    }
+  });
   
   // Get all available library variable collections
   try {

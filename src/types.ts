@@ -116,3 +116,13 @@ export interface LibraryVariablesHandler extends EventHandler {
   name: 'LIBRARY_VARIABLES_LOADED'
   handler: (variables: Array<LibraryVariables>) => void
 }
+
+export interface SetFigmaApiKeyHandler extends EventHandler {
+  name: 'SET_FIGMA_API_KEY'
+  handler: (apiKey: string) => void
+}
+
+export interface ApiKeyUpdatedHandler extends EventHandler {
+  name: 'API_KEY_UPDATED'
+  handler: (success: boolean) => void
+}
