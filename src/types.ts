@@ -119,3 +119,41 @@ export interface LibraryVariablesHandler extends EventHandler {
   name: 'LIBRARY_VARIABLES_LOADED'
   handler: (variables: Array<LibraryVariables>) => void
 }
+
+export interface ResolvedVariableValue {
+  id: string;
+  variableId: string;
+  name: string;
+  type: VariableResolvedDataType;
+  resolvedType: VariableResolvedDataType;
+  value: any;
+  valuesByMode?: Record<string, any>;
+  modeNames?: Record<string, string>;
+  collectionId: string;
+  collectionName: string;
+}
+
+export interface SetFigmaApiKeyHandler extends EventHandler {
+  name: 'SET_FIGMA_API_KEY'
+  handler: (apiKey: string) => void
+}
+
+export interface ApiKeyUpdatedHandler extends EventHandler {
+  name: 'API_KEY_UPDATED'
+  handler: (success: boolean) => void
+}
+
+export interface FetchVariableValuesHandler extends EventHandler {
+  name: 'FETCH_VARIABLE_VALUES'
+  handler: () => void
+}
+
+export interface VariableValuesLoadedHandler extends EventHandler {
+  name: 'VARIABLE_VALUES_LOADED'
+  handler: (values: Array<ResolvedVariableValue>) => void
+}
+
+// Extended interface for library variables coming from the API
+export interface ApiLibraryVariable extends Omit<LibraryVariable, 'valuesByMode'> {
+  valuesByMode?: { [modeId: string]: any }
+}

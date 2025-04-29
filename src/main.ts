@@ -15,7 +15,13 @@ import {
   LibraryVariables,
   LibraryVariablesHandler,
   LibraryVariable,
-  VariableResolvedDataType
+  VariableResolvedDataType,
+  SetFigmaApiKeyHandler,
+  ApiKeyUpdatedHandler,
+  FetchVariableValuesHandler,
+  VariableValuesLoadedHandler,
+  ResolvedVariableValue,
+  SelectLayerHandler
 } from './types'
 
 // Store collections data in the main context
@@ -536,12 +542,17 @@ async function getCollectionVariables(collection: VariableCollectionData): Promi
 
     console.log('Processed variables:', variables)
 
-    // DEBUG: Log the first variable to see its structure
+    // Debug the first variable to see its structure
     if (variables.length > 0) {
-      console.log('First Variable Structure:', JSON.stringify(variables[0], null, 2))
-      console.log('Full variable raw data:', variables[0])
-      // Check for other possible property names that might contain the mode values
-      console.log('Property names:', Object.keys(variables[0]))
+      const firstVar = variables[0] as any;
+      console.log('First variable structure:', {
+        name: firstVar.name,
+        type: firstVar.resolvedType,
+        keys: Object.keys(firstVar),
+        hasValuesByMode: 'valuesByMode' in firstVar,
+        valuesByModeType: firstVar.valuesByMode ? typeof firstVar.valuesByMode : 'undefined',
+        valuesByModeKeys: firstVar.valuesByMode ? Object.keys(firstVar.valuesByMode) : []
+      })
     }
 
     return {
@@ -613,15 +624,12 @@ async function fetchLibraryVariables(collectionId: string): Promise<LibraryVaria
   }
 }
 
-// Function to resolve library variable values using resolveForConsumer()
+// Function to resolve library variable values
 async function resolveLibraryVariableValues(variables: any[], collectionId: string): Promise<any[]> {
   try {
-    console.log('Resolving actual values for library variables...')
+    console.log('Resolving values for library variables...')
     
-    // Instead of trying to find local matches, we'll work directly with the library data
-    // For library variables, we can't reliably use resolveForConsumer since they might not be available locally
-    
-    // Get all available library collections to understand dependencies
+    // Get all available library collections
     const allCollections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
     
     // Find the current collection
@@ -639,146 +647,265 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
     console.log(`Found ${relatedCollections.length} collections from the same library:`, 
       relatedCollections.map(c => c.name))
     
-    // Get all variables from all related collections
-    const allLibraryVariablePromises = relatedCollections.map(async collection => {
+    // Process each collection to get its variables and modes
+    const collectionsWithModes = await Promise.all(relatedCollections.map(async (collectionDescriptor) => {
       try {
-        const vars = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
-        return {
-          collection,
-          variables: vars
+        console.log(`Processing collection: ${collectionDescriptor.name}`)
+        
+        // Get variables from this collection
+        const libraryVariables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collectionDescriptor.key)
+        
+        if (libraryVariables.length === 0) {
+          console.log(`No variables found in collection: ${collectionDescriptor.name}`)
+          return {
+            collection: collectionDescriptor,
+            figmaCollection: null,
+            modes: [],
+            variables: []
+          }
         }
-      } catch (err) {
-        console.error(`Failed to get variables for collection ${collection.name}:`, err)
+        
+        // Import one variable to get access to the collection
+        console.log(`Importing a variable to get collection data...`)
+        let importedVariable
+        try {
+          importedVariable = await figma.variables.importVariableByKeyAsync(libraryVariables[0].key)
+          console.log(`Successfully imported variable: ${importedVariable.name}`)
+        } catch (importError) {
+          console.error(`Error importing variable: ${libraryVariables[0].name}`, importError)
+          return {
+            collection: collectionDescriptor,
+            figmaCollection: null,
+            modes: [],
+            variables: libraryVariables
+          }
+        }
+        
+        // Get the collection using the imported variable's collection ID
+        const collectionId = importedVariable.variableCollectionId
+        console.log(`Getting collection by ID: ${collectionId}`)
+        
+        const figmaCollection = await figma.variables.getVariableCollectionByIdAsync(collectionId)
+        if (!figmaCollection) {
+          console.log(`Could not get collection with ID: ${collectionId}`)
+          return {
+            collection: collectionDescriptor,
+            figmaCollection: null,
+            modes: [],
+            variables: libraryVariables
+          }
+        }
+        
+        // Log the modes information
+        console.log(`Collection ${collectionDescriptor.name} has ${figmaCollection.modes.length} modes:`, 
+          figmaCollection.modes.map(m => m.name))
+        
         return {
-          collection,
+          collection: collectionDescriptor,
+          figmaCollection,
+          modes: figmaCollection.modes,
+          variables: libraryVariables
+        }
+      } catch (error) {
+        console.error(`Error processing collection ${collectionDescriptor.name}:`, error)
+        return {
+          collection: collectionDescriptor,
+          figmaCollection: null,
+          modes: [],
           variables: []
         }
       }
-    })
+    }))
     
-    const allLibraryVariablesResults = await Promise.all(allLibraryVariablePromises)
+    // Process all variables with their collection modes
+    let allProcessedVariables: any[] = []
     
-    // Create a flat array of all variables from all collections
-    let allVariables: any[] = []
-    allLibraryVariablesResults.forEach(result => {
-      // Add collection info to each variable
-      const varsWithCollection = result.variables.map(variable => ({
-        ...variable,
-        collectionName: result.collection.name,
-        collectionKey: result.collection.key
-      }))
-      allVariables = allVariables.concat(varsWithCollection)
-    })
-    
-    console.log(`Loaded ${allVariables.length} total variables from all related collections`)
-    
-    // Create a map for quick lookup
-    const variablesByKey = new Map()
-    allVariables.forEach(variable => {
-      variablesByKey.set(variable.key, variable)
-    })
-    
-    // Process ALL variables from related collections, not just the ones from the selected collection
-    const resolvedVariables = allVariables.map(variable => {
-      try {
-        // Determine a sensible placeholder value based on the variable type
-        let placeholderValue
-        let displayValue
-        
-        switch(variable.resolvedType) {
-          case 'COLOR':
-            // Use a recognizable placeholder color for each variable
-            // Hash the variable name to get a consistent color
-            const hash = hashCode(variable.name)
-            const r = ((hash & 0xFF0000) >> 16) / 255
-            const g = ((hash & 0x00FF00) >> 8) / 255
-            const b = (hash & 0x0000FF) / 255
-            placeholderValue = { r, g, b }
-            displayValue = rgbToHex(placeholderValue)
-            break
-            
-          case 'FLOAT':
-            // Extract a number from the variable name if possible
-            // Improve number extraction pattern to catch more cases
-            // Try various patterns that might contain numbers
-            let numberValue = 0;
-            
-            // Log the variable name for debugging
-            console.log(`Looking for number in variable name: "${variable.name}"`);
-            
-            // Pattern 1: extract digits at the end of a string (e.g., "space-4", "spacing/8")
-            const endingPattern = /[\s-/_](\d+)(?:px)?$/;
-            
-            // Pattern 2: extract digits anywhere in the string
-            const anywherePattern = /[^\w](\d+)(?:px)?/;
-            
-            // Try the more specific ending pattern first
-            const endMatch = variable.name.match(endingPattern);
-            if (endMatch && endMatch[1]) {
-              numberValue = parseInt(endMatch[1], 10);
-              console.log(`Found ending number ${numberValue} in "${variable.name}"`);
-            } 
-            // Then try the more general pattern
-            else {
-              const anyMatch = variable.name.match(anywherePattern);
-              if (anyMatch && anyMatch[1]) {
-                numberValue = parseInt(anyMatch[1], 10);
-                console.log(`Found embedded number ${numberValue} in "${variable.name}"`);
-              } else {
-                // Special case handling for known patterns
-                if (variable.name.includes('xs')) numberValue = 4;
-                else if (variable.name.includes('sm')) numberValue = 8;
-                else if (variable.name.includes('md')) numberValue = 16;
-                else if (variable.name.includes('lg')) numberValue = 24;
-                else if (variable.name.includes('xl')) numberValue = 32;
-                else if (variable.name.includes('xxl')) numberValue = 48;
-                
-                if (numberValue > 0) {
-                  console.log(`Found size keyword number ${numberValue} in "${variable.name}"`);
-                }
-              }
-            }
-            
-            placeholderValue = numberValue;
-            displayValue = String(numberValue);
-            break;
-            
-          case 'STRING':
-            placeholderValue = variable.name
-            displayValue = placeholderValue
-            break
-            
-          case 'BOOLEAN':
-            placeholderValue = true
-            displayValue = 'true'
-            break
-            
-          default:
-            placeholderValue = null
-            displayValue = 'unknown'
-        }
-        
-        // For better debugging, include the variable type in the output
-        return {
-          ...variable,
-          resolvedValue: placeholderValue,
-          displayValue: displayValue,
-          variableType: variable.resolvedType,
-          // Store the original variable key for reference
-          originalKey: variable.key
-        }
-      } catch (err) {
-        console.error(`Failed to process variable ${variable.name}:`, err)
-        return variable
+    for (const collectionData of collectionsWithModes) {
+      if (!collectionData.figmaCollection || collectionData.variables.length === 0) {
+        continue
       }
-    })
+      
+      const processedVariables = await Promise.all(collectionData.variables.map(async (variable) => {
+        try {
+          // Create a valuesByMode object for the UI
+          const valuesByMode: Record<string, any> = {}
+          const modeNames: Record<string, string> = {}
+          
+          // Get all mode information
+          collectionData.modes.forEach(mode => {
+            modeNames[mode.modeId] = mode.name
+            
+            // We can't directly access values for each mode in library variables
+            // We'll try to use a placeholder based on the variable's resolved type
+            valuesByMode[mode.modeId] = variable.resolvedType === 'FLOAT' ? 0 : 
+                                         variable.resolvedType === 'COLOR' ? {r: 0, g: 0, b: 0} :
+                                         variable.resolvedType === 'BOOLEAN' ? false : ''
+          })
+          
+          // Import this variable to get its real values
+          let importedVariable: Variable | null = null
+          try {
+            importedVariable = await figma.variables.importVariableByKeyAsync(variable.key)
+            
+            // Now we can get the actual values for each mode
+            if (importedVariable) {
+              collectionData.modes.forEach(mode => {
+                if (importedVariable && importedVariable.valuesByMode[mode.modeId] !== undefined) {
+                  const modeValue = importedVariable.valuesByMode[mode.modeId];
+                  
+                  // Check if this is an alias
+                  if (modeValue && typeof modeValue === 'object' && 'type' in modeValue && modeValue.type === 'VARIABLE_ALIAS') {
+                    console.log(`Found alias in variable ${importedVariable.name} for mode ${mode.name}`);
+                    
+                    try {
+                      // Create a temporary node to use as consumer
+                      const tempNode = figma.createRectangle();
+                      
+                      // Note: We can't set the active collection mode directly through the API
+                      // But we can still resolve aliases by binding variables to the temp node
+                      
+                      // Bind the variable to the node based on its type
+                      switch (importedVariable.resolvedType) {
+                        case 'COLOR':
+                          // For color, we'll bind to fill
+                          tempNode.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, opacity: 1 }];
+                          tempNode.fillStyleId = '';
+                          try {
+                            tempNode.setBoundVariable(['fills', 0, 'color'] as any, importedVariable);
+                          } catch (err) {
+                            console.log('Error binding color variable', err);
+                          }
+                          break;
+                          
+                        case 'FLOAT':
+                          // For number, we'll bind to width - using a string field name
+                          try {
+                            tempNode.setBoundVariable('width', importedVariable);
+                          } catch (err) {
+                            console.log('Error binding number variable', err);
+                          }
+                          break;
+                          
+                        case 'BOOLEAN':
+                          // For boolean, we'll bind to visible
+                          try {
+                            tempNode.setBoundVariable('visible', importedVariable);
+                          } catch (err) {
+                            console.log('Error binding boolean variable', err);
+                          }
+                          break;
+                          
+                        case 'STRING':
+                          // For string, we can't easily bind, so we'll use the alias directly
+                          valuesByMode[mode.modeId] = modeValue;
+                          break;
+                      }
+                      
+                      // Now resolve the alias
+                      if (importedVariable.resolvedType !== 'STRING') {
+                        try {
+                          const resolvedValue = importedVariable.resolveForConsumer(tempNode);
+                          if (resolvedValue) {
+                            console.log(`Resolved alias to:`, resolvedValue.value);
+                            valuesByMode[mode.modeId] = resolvedValue.value;
+                          } else {
+                            console.log(`Could not resolve alias, using raw value`);
+                            valuesByMode[mode.modeId] = modeValue;
+                          }
+                        } catch (err) {
+                          console.log('Error resolving alias', err);
+                          valuesByMode[mode.modeId] = modeValue;
+                        }
+                      }
+                      
+                      // Clean up
+                      tempNode.remove();
+                    } catch (err) {
+                      console.log('Error handling alias', err);
+                      valuesByMode[mode.modeId] = modeValue;
+                    }
+                  } else {
+                    // Not an alias, use directly
+                    valuesByMode[mode.modeId] = modeValue;
+                  }
+                }
+              })
+            }
+          } catch (importError) {
+            console.log(`Could not import variable: ${variable.name}`, importError)
+          }
+          
+          // Use the default mode's value as the resolved value
+          const defaultModeId = collectionData.figmaCollection.defaultModeId
+          const defaultValue = valuesByMode[defaultModeId] || 
+                              Object.values(valuesByMode)[0] || 
+                              getDefaultValueForType(variable.resolvedType)
+          
+          return {
+            ...variable,
+            collectionName: collectionData.collection.name,
+            collectionKey: collectionData.collection.key,
+            modeNames,
+            valuesByMode,
+            resolvedValue: defaultValue,
+            displayValue: formatValueForDisplay(defaultValue, variable.resolvedType)
+          }
+        } catch (err) {
+          console.error(`Error processing variable ${variable.name}:`, err)
+          return {
+            ...variable,
+            collectionName: collectionData.collection.name,
+            collectionKey: collectionData.collection.key,
+            resolvedValue: getDefaultValueForType(variable.resolvedType),
+            displayValue: 'Error: ' + (err as Error).message
+          }
+        }
+      }))
+      
+      allProcessedVariables = allProcessedVariables.concat(processedVariables)
+    }
     
-    console.log(`Processed ${resolvedVariables.length} variables with placeholder values`)
-    return resolvedVariables
+    console.log(`Processed ${allProcessedVariables.length} variables with their mode values`)
+    return allProcessedVariables
   } catch (error) {
     console.error('Error resolving library variable values:', error)
     return variables
   }
+}
+
+// Helper function to get a default value based on variable type
+function getDefaultValueForType(type: string): any {
+  switch(type) {
+    case 'COLOR':
+      return { r: 0, g: 0, b: 0 }
+    case 'FLOAT':
+      return 0
+    case 'STRING':
+      return ''
+    case 'BOOLEAN':
+      return false
+    default:
+      return null
+  }
+}
+
+// Helper function to format values for display
+function formatValueForDisplay(value: any, type: string): string {
+  if (value === undefined || value === null) return 'No value'
+  
+  if (type === 'COLOR' && typeof value === 'object' && 'r' in value && 'g' in value && 'b' in value) {
+    // Format color values
+    const r = Math.round(value.r * 255)
+    const g = Math.round(value.g * 255)
+    const b = Math.round(value.b * 255)
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+  } else if (type === 'FLOAT') {
+    // Format number values
+    return typeof value === 'number' ? value.toString() : String(value)
+  }
+  
+  // Default to string representation
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
 // Helper function to hash a string into a number (for generating placeholder colors)
@@ -857,6 +984,209 @@ function findClosestNumberVariable(value: number): { id: string; name: string; v
   }
   
   return undefined;
+}
+
+// Store API key in client storage
+async function setFigmaApiKey(apiKey: string): Promise<boolean> {
+  try {
+    await figma.clientStorage.setAsync('figmaApiKey', apiKey)
+    console.log('API key saved successfully')
+    return true
+  } catch (error) {
+    console.error('Failed to save API key:', error)
+    return false
+  }
+}
+
+// Get API key from client storage
+async function getFigmaApiKey(): Promise<string | null> {
+  try {
+    return await figma.clientStorage.getAsync('figmaApiKey')
+  } catch (error) {
+    console.error('Failed to get API key:', error)
+    return null
+  }
+}
+
+// Fetch variable values from the Figma API
+async function fetchVariableValues(): Promise<ResolvedVariableValue[]> {
+  if (!selectedCollection) {
+    console.error('No collection selected')
+    return []
+  }
+  
+  try {
+    console.log('Fetching true variable values from library variables...')
+    
+    if (!selectedCollection.variables || selectedCollection.variables.length === 0) {
+      console.log('No variables found in selected collection')
+      return []
+    }
+    
+    // Get the result array
+    const result: ResolvedVariableValue[] = []
+    
+    // Process each variable
+    for (const variable of selectedCollection.variables) {
+      try {
+        console.log(`Processing variable: ${variable.name}`)
+        
+        // Try to import the variable to get its actual values
+        let importedVariable: Variable | null = null
+        try {
+          importedVariable = await figma.variables.importVariableByKeyAsync(variable.key)
+          console.log(`Successfully imported variable: ${importedVariable.name}`)
+        } catch (importError) {
+          console.error(`Could not import variable: ${variable.name}`, importError)
+        }
+        
+        // Initialize with defaults
+        let valuesByMode: Record<string, any> = {}
+        let modeNames: Record<string, string> = {}
+        let currentValue: any = variable.resolvedValue
+        
+        if (importedVariable) {
+          // Get the collection to access modes
+          const collection = figma.variables.getVariableCollectionById(importedVariable.variableCollectionId)
+          
+          if (collection) {
+            // Get mode names
+            collection.modes.forEach(mode => {
+              modeNames[mode.modeId] = mode.name
+              
+              // Get value for this mode if it exists
+              if (importedVariable.valuesByMode[mode.modeId] !== undefined) {
+                const modeValue = importedVariable.valuesByMode[mode.modeId];
+                
+                // Check if this is an alias
+                if (modeValue && typeof modeValue === 'object' && 'type' in modeValue && modeValue.type === 'VARIABLE_ALIAS') {
+                  console.log(`Found alias in variable ${importedVariable.name} for mode ${mode.name}`);
+                  
+                  try {
+                    // Create a temporary node to use as consumer
+                    const tempNode = figma.createRectangle();
+                    
+                    // Note: We can't set the active collection mode directly through the API
+                    // But we can still resolve aliases by binding variables to the temp node
+                    
+                    // Bind the variable to the node based on its type
+                    switch (importedVariable.resolvedType) {
+                      case 'COLOR':
+                        // For color, we'll bind to fill
+                        tempNode.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 }, opacity: 1 }];
+                        tempNode.fillStyleId = '';
+                        try {
+                          tempNode.setBoundVariable(['fills', 0, 'color'] as any, importedVariable);
+                        } catch (err) {
+                          console.log('Error binding color variable', err);
+                        }
+                        break;
+                        
+                      case 'FLOAT':
+                        // For number, we'll bind to width - using a string field name
+                        try {
+                          tempNode.setBoundVariable('width', importedVariable);
+                        } catch (err) {
+                          console.log('Error binding number variable', err);
+                        }
+                        break;
+                        
+                      case 'BOOLEAN':
+                        // For boolean, we'll bind to visible
+                        try {
+                          tempNode.setBoundVariable('visible', importedVariable);
+                        } catch (err) {
+                          console.log('Error binding boolean variable', err);
+                        }
+                        break;
+                        
+                      case 'STRING':
+                        // For string, we can't easily bind, so we'll use the alias directly
+                        valuesByMode[mode.modeId] = modeValue;
+                        break;
+                    }
+                    
+                    // Now resolve the alias
+                    if (importedVariable.resolvedType !== 'STRING') {
+                      try {
+                        const resolvedValue = importedVariable.resolveForConsumer(tempNode);
+                        if (resolvedValue) {
+                          console.log(`Resolved alias to:`, resolvedValue.value);
+                          valuesByMode[mode.modeId] = resolvedValue.value;
+                        } else {
+                          console.log(`Could not resolve alias, using raw value`);
+                          valuesByMode[mode.modeId] = modeValue;
+                        }
+                      } catch (err) {
+                        console.log('Error resolving alias', err);
+                        valuesByMode[mode.modeId] = modeValue;
+                      }
+                    }
+                    
+                    // Clean up
+                    tempNode.remove();
+                  } catch (err) {
+                    console.log('Error handling alias', err);
+                    valuesByMode[mode.modeId] = modeValue;
+                  }
+                } else {
+                  // Not an alias, use directly
+                  valuesByMode[mode.modeId] = modeValue;
+                }
+              }
+            })
+            
+            // Use the default mode's value
+            const defaultModeId = collection.defaultModeId
+            if (valuesByMode[defaultModeId] !== undefined) {
+              currentValue = valuesByMode[defaultModeId]
+            } else if (Object.keys(valuesByMode).length > 0) {
+              // Fallback to first value
+              currentValue = Object.values(valuesByMode)[0]
+            }
+          }
+        } else {
+          // Fallback to what we already have
+          valuesByMode = (variable as any).valuesByMode || {}
+          modeNames = (variable as any).modeNames || {}
+        }
+        
+        // Add to results
+        result.push({
+          id: variable.id,
+          variableId: variable.id,
+          name: variable.name,
+          type: variable.type as VariableResolvedDataType,
+          resolvedType: variable.type as VariableResolvedDataType,
+          value: currentValue,
+          valuesByMode,
+          modeNames,
+          collectionId: selectedCollection.id,
+          collectionName: selectedCollection.name
+        })
+      } catch (error) {
+        console.error(`Error processing variable ${variable.name}:`, error)
+        
+        // Still add the variable with its resolved value
+        result.push({
+          id: variable.id,
+          variableId: variable.id,
+          name: variable.name,
+          type: variable.type as VariableResolvedDataType,
+          resolvedType: variable.type as VariableResolvedDataType,
+          value: variable.resolvedValue,
+          collectionId: selectedCollection.id,
+          collectionName: selectedCollection.name
+        })
+      }
+    }
+    
+    console.log(`Fetched values for ${result.length} variables`)
+    return result
+  } catch (error) {
+    console.error('Error fetching variable values:', error)
+    return []
+  }
 }
 
 export default async function () {
@@ -1005,6 +1335,45 @@ export default async function () {
       // After sending analysis results, fetch library variables
       const libraryVariables = await fetchLibraryVariables(selectedCollection.id)
       emit<LibraryVariablesHandler>('LIBRARY_VARIABLES_LOADED', libraryVariables)
+    })
+    
+    // Handle select layer
+    on<SelectLayerHandler>('SELECT_LAYER', function (nodeId: string) {
+      const node = figma.getNodeById(nodeId)
+      if (node && node.type !== 'PAGE' && node.type !== 'DOCUMENT') {
+        figma.currentPage.selection = [node as SceneNode]
+        figma.viewport.scrollAndZoomIntoView([node as SceneNode])
+      }
+    })
+    
+    // Handle Figma API key
+    on<SetFigmaApiKeyHandler>('SET_FIGMA_API_KEY', async function (apiKey: string) {
+      const success = await setFigmaApiKey(apiKey)
+      emit<ApiKeyUpdatedHandler>('API_KEY_UPDATED', success)
+    })
+    
+    // Handle fetch variable values
+    on<FetchVariableValuesHandler>('FETCH_VARIABLE_VALUES', async function () {
+      try {
+        console.log('\n=== Fetching Variable Values ===')
+        
+        if (!selectedCollection) {
+          console.error('No collection selected')
+          figma.notify('Please select a collection first', { error: true })
+          return
+        }
+        
+        // Use our new function to fetch true variable values
+        const values = await fetchVariableValues()
+        console.log(`Fetched ${values.length} variable values`)
+        
+        // Send the values back to the UI
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', values)
+      } catch (error) {
+        console.error('Error fetching variable values:', error)
+        figma.notify('Error fetching variable values', { error: true })
+        emit<VariableValuesLoadedHandler>('VARIABLE_VALUES_LOADED', [])
+      }
     })
     
     // Handle close
