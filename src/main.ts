@@ -871,16 +871,28 @@ async function resolveLibraryVariableValues(variables: any[], collectionId: stri
                               Object.values(valuesByMode)[0] || 
                               getDefaultValueForType(variable.resolvedType)
           
-        return {
-          ...variable,
+          // Format display values for each mode
+          const formattedValuesByMode: Record<string, { raw: any, display: string }> = {};
+          
+          // Process each mode value to create formatted display values
+          Object.entries(valuesByMode).forEach(([modeId, modeValue]) => {
+            formattedValuesByMode[modeId] = {
+              raw: modeValue,
+              display: formatValueForDisplay(modeValue, variable.resolvedType)
+            };
+          });
+          
+          return {
+            ...variable,
             collectionName: collectionData.collection.name,
             collectionKey: collectionData.collection.key,
             modeNames,
-            valuesByMode,
-            resolvedValue: defaultValue,
-            displayValue: formatValueForDisplay(defaultValue, variable.resolvedType)
-        }
-      } catch (err) {
+            valuesByMode, // Keep the raw values
+            formattedValuesByMode, // Add formatted values for display
+            resolvedValue: defaultValue, // Default/current value
+            displayValue: formatValueForDisplay(defaultValue, variable.resolvedType) // Formatted default value
+          }
+        } catch (err) {
           console.error(`Error processing variable ${variable.name}:`, err)
           return {
             ...variable,
@@ -1211,16 +1223,29 @@ async function fetchVariableValues(): Promise<ResolvedVariableValue[]> {
           modeNames = (variable as any).modeNames || {}
         }
         
-        // Add to results
+        // Format display values for each mode
+        const formattedValuesByMode: Record<string, { raw: any, display: string }> = {};
+        
+        // Process each mode value to create formatted display values
+        Object.entries(valuesByMode).forEach(([modeId, modeValue]) => {
+          formattedValuesByMode[modeId] = {
+            raw: modeValue,
+            display: formatValueForDisplay(modeValue, variable.type as VariableResolvedDataType)
+          };
+        });
+        
+        // Add to results with formatted values
         result.push({
-    id: variable.id,
-    variableId: variable.id,
-    name: variable.name,
-    type: variable.type as VariableResolvedDataType,
-    resolvedType: variable.type as VariableResolvedDataType,
+          id: variable.id,
+          variableId: variable.id,
+          name: variable.name,
+          type: variable.type as VariableResolvedDataType,
+          resolvedType: variable.type as VariableResolvedDataType,
           value: currentValue,
           valuesByMode,
           modeNames,
+          formattedValuesByMode,
+          displayValue: formatValueForDisplay(currentValue, variable.type as VariableResolvedDataType),
           collectionId: selectedCollection.id,
           collectionName: selectedCollection.name
         })

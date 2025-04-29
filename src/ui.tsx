@@ -470,26 +470,16 @@ function Plugin() {
   }
 
   // Helper function to format variable value
-  const formatVariableValue = (value: any): string => {
+  const formatVariableValue = (value: any, type: string): string => {
     if (!value) return 'No value'
-    if (typeof value === 'object') {
-      // Handle mode values
-      const values = Object.values(value)
-      if (!values.length) return 'No value'
-      const modeValues = values[0]
-      if (!modeValues || typeof modeValues !== 'object') return 'No value'
-      
-      if ('r' in modeValues) {
-        // It's a color
-        const color = modeValues as { r: number; g: number; b: number }
-        const r = Math.round(color.r * 255)
-        const g = Math.round(color.g * 255)
-        const b = Math.round(color.b * 255)
-        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-      }
-      return JSON.stringify(modeValues)
+    
+    // If it's a simple value (not a mode object)
+    if (typeof value !== 'object' || !Object.keys(value).length) {
+      return formatResolvedValue(value, type);
     }
-    return String(value)
+    
+    // For mode objects, we'll just indicate there are multiple modes
+    return `Multiple modes available`;
   }
 
   // Format a resolved variable value
@@ -877,18 +867,32 @@ function Plugin() {
                     <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
                       <Text style="secondary">Type: {variable.resolvedType}</Text>
                       <Text style="secondary">Collection: {variable.collectionName}</Text>
-                      <Text style="secondary">Current Value: {formatResolvedValue(variable.value, variable.resolvedType)}</Text>
+                      <Text style="secondary">Current Value: {variable.displayValue || formatResolvedValue(variable.value, variable.resolvedType)}</Text>
+                      
+                      {/* Show default/resolved value */}
+                      {variable.resolvedValue && (
+                        <Text style="secondary">Default Value: {variable.displayValue || formatResolvedValue(variable.resolvedValue, variable.resolvedType)}</Text>
+                      )}
                       
                       {/* Show values for each mode */}
                       {variable.valuesByMode && Object.keys(variable.valuesByMode).length > 0 && (
                         <Fragment>
                           <Text style="secondary">Values by Mode:</Text>
                           <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
-                            {Object.entries(variable.valuesByMode).map(([modeId, modeValue]) => (
-                              <Text key={modeId} style="secondary">
-                                {variable.modeNames && variable.modeNames[modeId] ? variable.modeNames[modeId] : `Mode ${modeId}`}: {formatResolvedValue(modeValue, variable.resolvedType)}
-                              </Text>
-                            ))}
+                            {Object.entries(variable.valuesByMode).map(([modeId, modeValue]) => {
+                              const modeName = variable.modeNames && variable.modeNames[modeId] 
+                                ? variable.modeNames[modeId] 
+                                : `Mode ${modeId}`;
+                                
+                              // Just use formatResolvedValue for library variables since formattedValuesByMode might not exist
+                              const formattedValue = formatResolvedValue(modeValue, variable.resolvedType);
+                              
+                              return (
+                                <Text key={modeId} style="secondary">
+                                  {modeName}: {formattedValue}
+                                </Text>
+                              );
+                            })}
                           </Stack>
                         </Fragment>
                       )}
@@ -921,10 +925,37 @@ function Plugin() {
                       padding: '8px',
                       borderRadius: '6px'
                     }}>
-                      <Text>{variable.name}</Text>
+                      <Text style="bold">{variable.name}</Text>
                       <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
                         <Text style="secondary">Type: {variable.resolvedType}</Text>
-                        <Text style="secondary">Value: {formatVariableValue(variable.valuesByMode)}</Text>
+                        
+                        {/* Show default/resolved value */}
+                        {variable.resolvedValue && (
+                          <Text style="secondary">Default Value: {variable.displayValue || formatResolvedValue(variable.resolvedValue, variable.resolvedType)}</Text>
+                        )}
+                        
+                        {/* Show values for each mode */}
+                        {variable.valuesByMode && Object.keys(variable.valuesByMode).length > 0 && (
+                          <Fragment>
+                            <Text style="secondary">Values by Mode:</Text>
+                            <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
+                              {Object.entries(variable.valuesByMode).map(([modeId, modeValue]) => {
+                                const modeName = variable.modeNames && variable.modeNames[modeId] 
+                                  ? variable.modeNames[modeId] 
+                                  : `Mode ${modeId}`;
+                                  
+                                // Just use formatResolvedValue for library variables since formattedValuesByMode might not exist
+                                const formattedValue = formatResolvedValue(modeValue, variable.resolvedType);
+                                
+                                return (
+                                  <Text key={modeId} style="secondary">
+                                    {modeName}: {formattedValue}
+                                  </Text>
+                                );
+                              })}
+                            </Stack>
+                          </Fragment>
+                        )}
                       </Stack>
                     </Stack>
                   ))}

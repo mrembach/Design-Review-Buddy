@@ -106,6 +106,9 @@ export interface LibraryVariable {
   remote: boolean
   variableCollectionId: string
   scopes: string[]
+  resolvedValue?: any
+  modeNames?: { [modeId: string]: string }
+  displayValue?: string
 }
 
 export interface LibraryVariables {
@@ -127,10 +130,13 @@ export interface ResolvedVariableValue {
   type: VariableResolvedDataType;
   resolvedType: VariableResolvedDataType;
   value: any;
+  resolvedValue?: any;
   valuesByMode?: Record<string, any>;
+  formattedValuesByMode?: Record<string, { raw: any, display: string }>;
   modeNames?: Record<string, string>;
   collectionId: string;
   collectionName: string;
+  displayValue?: string;
 }
 
 export interface SetFigmaApiKeyHandler extends EventHandler {
