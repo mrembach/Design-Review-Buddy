@@ -496,19 +496,62 @@ function Plugin() {
   const formatResolvedValue = (value: any, type: string): string => {
     if (value === undefined || value === null) return 'No value';
     
-    if (type === 'COLOR' && typeof value === 'object' && 'r' in value && 'g' in value && 'b' in value) {
-      // Format color values
-      const r = Math.round(value.r * 255)
-      const g = Math.round(value.g * 255)
-      const b = Math.round(value.b * 255)
-      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-    } else if (type === 'FLOAT' || type === 'NUMBER') {
-      // Format number values
-      return typeof value === 'number' ? value.toString() : String(value)
+    switch (type) {
+      case 'COLOR':
+        if (typeof value === 'object' && 'r' in value && 'g' in value && 'b' in value) {
+          // Format color values
+          const r = Math.round(value.r * 255)
+          const g = Math.round(value.g * 255)
+          const b = Math.round(value.b * 255)
+          return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+        }
+        break;
+        
+      case 'FLOAT':
+        // Format number values
+        if (typeof value === 'number') {
+          // Format with up to 2 decimal places if needed
+          return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+        }
+        break;
+        
+      case 'BOOLEAN':
+        // Format boolean values
+        if (typeof value === 'boolean') {
+          return value ? 'true' : 'false';
+        }
+        break;
+        
+      case 'STRING':
+        // Format string values
+        if (typeof value === 'string') {
+          // Truncate long strings
+          return value.length > 50 ? value.substring(0, 47) + '...' : value;
+        }
+        break;
+    }
+    
+    // Handle objects and fallback cases
+    if (typeof value === 'object') {
+      if (value === null) return 'null';
+      if (Array.isArray(value)) return `[Array: ${value.length} items]`;
+      
+      // Check if it's an alias object
+      if ('type' in value && value.type === 'VARIABLE_ALIAS') {
+        return `Alias → ${value.id || 'Unknown'}`;
+      }
+      
+      // For other objects, show a preview
+      try {
+        const json = JSON.stringify(value);
+        return json.length > 50 ? json.substring(0, 47) + '...' : json;
+      } catch (e) {
+        return '[Object]';
+      }
     }
     
     // Default to string representation
-    return typeof value === 'object' ? JSON.stringify(value) : String(value)
+    return String(value);
   }
 
   return (
@@ -827,13 +870,28 @@ function Plugin() {
                 {resolvedVariableValues.map((variable) => (
                   <Stack key={variable.variableId} space="extraSmall" style={{ 
                     backgroundColor: 'var(--figma-color-bg-secondary)',
-                    padding: '8px',
+                    padding: '12px',
                     borderRadius: '6px'
                   }}>
-                    <Text>{variable.name}</Text>
+                    <Text style="bold">{variable.name}</Text>
                     <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
                       <Text style="secondary">Type: {variable.resolvedType}</Text>
-                      <Text style="secondary">Value: {formatResolvedValue(variable.value, variable.resolvedType)}</Text>
+                      <Text style="secondary">Collection: {variable.collectionName}</Text>
+                      <Text style="secondary">Current Value: {formatResolvedValue(variable.value, variable.resolvedType)}</Text>
+                      
+                      {/* Show values for each mode */}
+                      {variable.valuesByMode && Object.keys(variable.valuesByMode).length > 0 && (
+                        <Fragment>
+                          <Text style="secondary">Values by Mode:</Text>
+                          <Stack space="extraSmall" style={{ marginLeft: '8px' }}>
+                            {Object.entries(variable.valuesByMode).map(([modeId, modeValue]) => (
+                              <Text key={modeId} style="secondary">
+                                {variable.modeNames && variable.modeNames[modeId] ? variable.modeNames[modeId] : `Mode ${modeId}`}: {formatResolvedValue(modeValue, variable.resolvedType)}
+                              </Text>
+                            ))}
+                          </Stack>
+                        </Fragment>
+                      )}
                     </Stack>
                   </Stack>
                 ))}
