@@ -266,7 +266,8 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         
         // Only suggest variables if it's actually mismatched (not matched by exception)
         if (property.isMismatched && !matchResult.matchedByException) {
-          const suggestedVar = findMatchingVariable(property.value, 'COLOR')
+          // Use context-aware color matching instead of simple matching
+          const suggestedVar = findContextAwareColorMatch(node, property.name, property.value)
           if (suggestedVar) {
             property.suggestedVariable = makeSerializable(suggestedVar)
           }
@@ -311,7 +312,8 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         }
         
         if (property.isMismatched) {
-          const suggestedVar = findMatchingVariable(stroke.color, 'COLOR')
+          // Use context-aware color matching for strokes
+          const suggestedVar = findContextAwareColorMatch(node, property.name, stroke.color)
           if (suggestedVar) {
             property.suggestedVariable = makeSerializable(suggestedVar)
           }
@@ -1404,6 +1406,169 @@ function safeResolveColorVariable(variable: Variable): { r: number, g: number, b
   } catch (error) {
     console.error('Error safely resolving color variable:', error);
     return null;
+  }
+}
+
+// Helper function to calculate color distance between two RGB colors
+function calculateColorDistance(color1: { r: number; g: number; b: number }, color2: { r: number; g: number; b: number }): number {
+  // Convert to 0-255 range for more intuitive calculations
+  const r1 = Math.round(color1.r * 255)
+  const g1 = Math.round(color1.g * 255)
+  const b1 = Math.round(color1.b * 255)
+  
+  const r2 = Math.round(color2.r * 255)
+  const g2 = Math.round(color2.g * 255)
+  const b2 = Math.round(color2.b * 255)
+  
+  // Simple Euclidean distance in RGB space
+  // More sophisticated color distance formulas exist (like CIEDE2000) but this is sufficient for basic matching
+  return Math.sqrt(
+    Math.pow(r2 - r1, 2) +
+    Math.pow(g2 - g1, 2) +
+    Math.pow(b2 - b1, 2)
+  )
+}
+
+// Function to determine the contextual type of node for color matching
+function getNodeColorContext(node: SceneNode, propertyName: string): string {
+  // Default context
+  let context = 'background'
+  
+  // Check node type and property name to determine context
+  if (node.type === 'TEXT') {
+    context = 'text'
+  } else if (propertyName.includes('Stroke') || propertyName.includes('Border')) {
+    context = 'border'
+  } else if (node.type === 'VECTOR' || node.type === 'BOOLEAN_OPERATION' || 
+            node.name.toLowerCase().includes('icon') || 
+            (node.parent && node.parent.name.toLowerCase().includes('icon'))) {
+    context = 'icon'
+  } else if (node.type === 'INSTANCE' && node.name.toLowerCase().includes('button')) {
+    context = 'button'
+  } else if (node.parent && node.parent.name.toLowerCase().includes('button')) {
+    context = 'button'
+  }
+  
+  console.log(`Determined color context: ${context} for node type ${node.type} named "${node.name}"`);
+  return context
+}
+
+// Function to find the best semantic color variable match based on context and color value
+function findContextAwareColorMatch(
+  node: SceneNode, 
+  propertyName: string, 
+  colorValue: { r: number; g: number; b: number }
+): { id: string; name: string; value: any; colorDistance: number } | undefined {
+  // Don't proceed if we don't have variables in the collection
+  if (!selectedCollection?.variables) return undefined
+  
+  console.log(`Finding context-aware color match for ${rgbToHex(colorValue)} in ${propertyName}`);
+  
+  // Get only the semantic token variables from the selected collection
+  // First check if we have a semantic tokens collection
+  const isSemanticCollection = selectedCollection.name?.toLowerCase().includes('semantic')
+  
+  // If not a semantic collection, we don't want to suggest variables
+  if (!isSemanticCollection) {
+    console.log('Not a semantic token collection, skipping suggestions');
+    return undefined
+  }
+  
+  // Get only color variables
+  const colorVariables = selectedCollection.variables.filter(v => v.type === 'COLOR')
+  
+  if (colorVariables.length === 0) {
+    console.log('No color variables found in the collection');
+    return undefined
+  }
+  
+  // Determine the color context based on node type and property
+  const colorContext = getNodeColorContext(node, propertyName)
+  
+  // For logging purposes, count variables by context
+  const contextCounts: Record<string, number> = {}
+  colorVariables.forEach(v => {
+    const name = v.name.toLowerCase()
+    if (name.includes('text')) contextCounts['text'] = (contextCounts['text'] || 0) + 1
+    if (name.includes('border')) contextCounts['border'] = (contextCounts['border'] || 0) + 1
+    if (name.includes('icon')) contextCounts['icon'] = (contextCounts['icon'] || 0) + 1
+    if (name.includes('background') || name.includes('surface')) {
+      contextCounts['background'] = (contextCounts['background'] || 0) + 1
+    }
+    if (name.includes('button')) contextCounts['button'] = (contextCounts['button'] || 0) + 1
+  })
+  
+  console.log('Color variables by context:', contextCounts);
+  
+  // Filter variables by context
+  let contextFilteredVariables = colorVariables.filter(variable => {
+    const name = variable.name.toLowerCase()
+    
+    // Match by context
+    switch (colorContext) {
+      case 'text':
+        return name.includes('text')
+      case 'border':
+        return name.includes('border') || name.includes('stroke') || name.includes('outline')
+      case 'icon':
+        return name.includes('icon') || name.includes('symbol')
+      case 'button':
+        return name.includes('button') || name.includes('interactive') || name.includes('action')
+      case 'background':
+        return name.includes('background') || name.includes('surface') || name.includes('fill')
+      default:
+        return true
+    }
+  })
+  
+  // If no variables match the context, try a more general approach
+  if (contextFilteredVariables.length === 0) {
+    console.log(`No variables found for context: ${colorContext}, using all color variables`);
+    contextFilteredVariables = colorVariables
+  } else {
+    console.log(`Found ${contextFilteredVariables.length} variables matching context: ${colorContext}`);
+  }
+  
+  // Calculate color distance for each variable
+  const variablesWithDistance = contextFilteredVariables.map(variable => {
+    // Get the variable's value
+    const variableColor = 'resolvedValue' in variable 
+      ? variable.resolvedValue 
+      : (variable.valuesByMode ? Object.values(variable.valuesByMode)[0] : null)
+    
+    if (!variableColor || typeof variableColor !== 'object' || !('r' in variableColor)) {
+      return { variable, distance: Number.MAX_VALUE }
+    }
+    
+    const distance = calculateColorDistance(colorValue, variableColor)
+    return { variable, distance }
+  })
+  
+  // Sort by color distance (closest first)
+  variablesWithDistance.sort((a, b) => a.distance - b.distance)
+  
+  // Get the best match - only consider variables with a reasonable color distance
+  // 75 is a reasonable threshold - it allows for some variation but prevents totally different colors
+  const bestMatch = variablesWithDistance.length > 0 && variablesWithDistance[0].distance < 75 
+    ? variablesWithDistance[0] 
+    : undefined
+  
+  if (!bestMatch) {
+    console.log('No suitable color matches found');
+    return undefined
+  }
+  
+  console.log('Best color match:', {
+    name: bestMatch.variable.name,
+    colorDistance: bestMatch.distance,
+    matchValue: 'resolvedValue' in bestMatch.variable ? bestMatch.variable.resolvedValue : bestMatch.variable.valuesByMode
+  })
+  
+  return {
+    id: bestMatch.variable.id,
+    name: bestMatch.variable.name,
+    value: 'resolvedValue' in bestMatch.variable ? bestMatch.variable.resolvedValue : bestMatch.variable.valuesByMode,
+    colorDistance: bestMatch.distance
   }
 }
 
