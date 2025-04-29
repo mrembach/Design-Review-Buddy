@@ -123,43 +123,62 @@ export interface LibraryVariablesHandler extends EventHandler {
   handler: (variables: Array<LibraryVariables>) => void
 }
 
-export interface ResolvedVariableValue {
-  id: string;
-  variableId: string;
-  name: string;
-  type: VariableResolvedDataType;
-  resolvedType: VariableResolvedDataType;
-  value: any;
-  resolvedValue?: any;
-  valuesByMode?: Record<string, any>;
-  formattedValuesByMode?: Record<string, { raw: any, display: string }>;
-  modeNames?: Record<string, string>;
-  collectionId: string;
-  collectionName: string;
-  displayValue?: string;
+export interface Collection {
+  id: string
+  name: string
 }
 
-export interface SetFigmaApiKeyHandler extends EventHandler {
-  name: 'SET_FIGMA_API_KEY'
-  handler: (apiKey: string) => void
-}
-
-export interface ApiKeyUpdatedHandler extends EventHandler {
-  name: 'API_KEY_UPDATED'
-  handler: (success: boolean) => void
-}
-
-export interface FetchVariableValuesHandler extends EventHandler {
-  name: 'FETCH_VARIABLE_VALUES'
+export interface AnalysisClickHandler extends EventHandler {
+  name: 'ANALYSIS_CLICK'
   handler: () => void
 }
 
-export interface VariableValuesLoadedHandler extends EventHandler {
-  name: 'VARIABLE_VALUES_LOADED'
-  handler: (values: Array<ResolvedVariableValue>) => void
+export interface ExcludedNamesChangedHandler extends EventHandler {
+  name: 'EXCLUDED_NAMES_CHANGED'
+  handler: (patterns: string) => void
 }
 
-// Extended interface for library variables coming from the API
-export interface ApiLibraryVariable extends Omit<LibraryVariable, 'valuesByMode'> {
-  valuesByMode?: { [modeId: string]: any }
+export interface ExceptionPatternsChangedHandler extends EventHandler {
+  name: 'EXCEPTION_PATTERNS_CHANGED'
+  handler: (patterns: string) => void
+}
+
+export interface InitHandler extends EventHandler {
+  name: 'INITIALIZE'
+  handler: (data: { collections: Array<Collection>, selectedCollection: string | null }) => void
+}
+
+export interface SelectCollectionHandler extends EventHandler {
+  name: 'SELECT_COLLECTION'
+  handler: (collectionId: string) => void
+}
+
+export interface ShowErrorHandler extends EventHandler {
+  name: 'SHOW_ERROR'
+  handler: (errorMessage: string) => void
+}
+
+export interface SingleFrameSelectedHandler extends EventHandler {
+  name: 'SINGLE_FRAME_SELECTED'
+  handler: (hasSingleFrameSelected: boolean) => void
+}
+
+export interface ToggleExcludeHiddenLayersHandler extends EventHandler {
+  name: 'TOGGLE_EXCLUDE_HIDDEN_LAYERS'
+  handler: (exclude: boolean) => void
+}
+
+export interface ToggleExcludeLockedLayersHandler extends EventHandler {
+  name: 'TOGGLE_EXCLUDE_LOCKED_LAYERS'
+  handler: (exclude: boolean) => void
+}
+
+export interface ToggleHideAllResultsHandler extends EventHandler {
+  name: 'TOGGLE_HIDE_ALL_RESULTS'
+  handler: (hide: boolean) => void
+}
+
+export interface ToggleShowOnlyMismatchesHandler extends EventHandler {
+  name: 'TOGGLE_SHOW_ONLY_MISMATCHES'
+  handler: (showOnly: boolean) => void
 }
