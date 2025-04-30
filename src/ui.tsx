@@ -48,7 +48,7 @@ const footerStyle = {
   bottom: 0,
   left: 0,
   right: 0,
-  padding: '16px',
+  padding: '8px 16px', // Reduced from 16px all around to 8px top/bottom, 16px left/right
   backgroundColor: 'white',
   borderTop: '1px solid #E5E5E5',
   zIndex: 2
@@ -56,7 +56,7 @@ const footerStyle = {
 
 // CSS for main content area to add padding at bottom
 const contentStyle = {
-  paddingBottom: '68px' // Height of footer + padding
+  paddingBottom: '52px' // Updated from 68px to 52px (reduced by 16px to match footer height reduction)
 }
 
 // CSS for layer container
