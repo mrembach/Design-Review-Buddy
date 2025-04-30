@@ -1267,12 +1267,12 @@ function Plugin() {
       value: 'Linter'
     },
     {
-      children: ReviewerTab,
-      value: 'Reviewer'
-    },
-    {
       children: ContentTab,
       value: 'Content'
+    },
+    {
+      children: ReviewerTab,
+      value: 'Reviewer'
     }
   ]
 
