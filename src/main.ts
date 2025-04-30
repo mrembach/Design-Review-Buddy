@@ -2062,7 +2062,7 @@ export default async function () {
         
         // Create the request payload for OpenAI API
         const payload = {
-          model: "gpt-4-vision-preview",
+          model: "gpt-4o",
           messages: [
             {
               role: "system",
@@ -2089,7 +2089,7 @@ export default async function () {
         
         try {
           // Call the Shopify OpenAI Proxy
-          const response = await fetch("https://proxy.shopify.ai/v1/chat/completions", {
+          const response = await fetch("https://proxy.shopify.ai/vendors/openai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -2099,7 +2099,10 @@ export default async function () {
           })
           
           if (!response.ok) {
-            throw new Error(`API request failed with status ${response.status}`)
+            console.error(`API error: ${response.status} ${response.statusText}`)
+            const errorText = await response.text()
+            console.error('Error response:', errorText)
+            throw new Error(`API request failed with status ${response.status}: ${errorText}`)
           }
           
           const responseData = await response.json()
