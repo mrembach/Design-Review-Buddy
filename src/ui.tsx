@@ -19,6 +19,7 @@ import {
   IconAutoLayoutHorizontalCenter16,
   IconAutoLayoutVerticalCenter16,
   IconApprovedCheckmark16,
+  IconAdjust16,
   Checkbox,
   MiddleAlign,
   Muted,
@@ -424,10 +425,11 @@ function Plugin() {
   const [hasResults, setHasResults] = useState<boolean>(false)
   const [analysisResults, setAnalysisResults] = useState<Array<AnalysisResult>>([])
   const [libraryVariables, setLibraryVariables] = useState<Array<LibraryVariables>>([])
-  const [currentTab, setCurrentTab] = useState<string>('lint')
+  const [currentTab, setCurrentTab] = useState<string>('Linter')
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({})
   const [isAnyModalOpen, setIsAnyModalOpen] = useState<boolean>(false)
   const [appliedRecommendationsCount, setAppliedRecommendationsCount] = useState<number>(0)
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false)
 
   // Initialize
   useEffect(function () {
@@ -590,6 +592,15 @@ function Plugin() {
   // Handler for when a recommendation is applied
   const handleRecommendationApplied = useCallback(() => {
     setAppliedRecommendationsCount(prev => prev + 1);
+  }, []);
+
+  // Handler for settings modal
+  const handleOpenSettingsModal = useCallback(() => {
+    setIsSettingsModalOpen(true);
+  }, []);
+
+  const handleCloseSettingsModal = useCallback(() => {
+    setIsSettingsModalOpen(false);
   }, []);
 
   // Helper function to get the correct icon based on node type
@@ -937,42 +948,13 @@ function Plugin() {
     </div>
   )
 
-  const SettingsTab = (
+  const ReviewerTab = (
     <div style={contentStyle}>
       <Container space="medium">
         <VerticalSpace space="large" />
-        <Text>Variable Collection</Text>
-        <VerticalSpace space="small" />
-        
-        {isLoading ? (
-          <LoadingIndicator />
-        ) : collections.length === 0 ? (
-          <Text>No variable collections found</Text>
-        ) : (
-          <Dropdown
-            onChange={handleCollectionChange}
-            options={collections.map((collection) => ({
-              value: collection.id,
-              text: `${collection.name} ${collection.libraryName ? ` - ${collection.libraryName}` : ''}`
-            }))}
-            value={selectedCollectionId || ''}
-          />
-        )}
-        
+        <Text>Reviewer Options</Text>
         <VerticalSpace space="large" />
-        <Text>Style Exceptions</Text>
-        <VerticalSpace space="small" />
-        <Textbox
-          placeholder="Enter exception patterns..."
-          value={exceptionPatterns}
-          onChange={handleExceptionPatternsChange}
-        />
-        
-        <VerticalSpace space="large" />
-        <Text style="small">
-          Enter patterns to exclude styles from analysis, separated by commas.
-          For example: "Retail UI/*" will ignore all styles starting with "Retail UI/".
-        </Text>
+        <Text>This tab will contain reviewer-specific functionality</Text>
       </Container>
     </div>
   )
@@ -981,11 +963,11 @@ function Plugin() {
   const tabOptions = [
     {
       children: LintTab,
-      value: 'lint'
+      value: 'Linter'
     },
     {
-      children: SettingsTab,
-      value: 'settings'
+      children: ReviewerTab,
+      value: 'Reviewer'
     }
   ]
 
@@ -997,16 +979,86 @@ function Plugin() {
         value={currentTab}
       />
       
+      {/* Settings bottom sheet modal */}
+      <Modal 
+        onCloseButtonClick={handleCloseSettingsModal} 
+        open={isSettingsModalOpen} 
+        position="bottom" 
+        title="Linter Settings"
+        style={{ height: '88vh' }}
+      >
+        <div style={{ padding: '16px' }}>
+          <Container space="medium">
+            <VerticalSpace space="large" />
+            <Text>Variable Collection</Text>
+            <VerticalSpace space="small" />
+            
+            {isLoading ? (
+              <LoadingIndicator />
+            ) : collections.length === 0 ? (
+              <Text>No variable collections found</Text>
+            ) : (
+              <Dropdown
+                onChange={handleCollectionChange}
+                options={collections.map((collection) => ({
+                  value: collection.id,
+                  text: `${collection.name} ${collection.libraryName ? ` - ${collection.libraryName}` : ''}`
+                }))}
+                value={selectedCollectionId || ''}
+              />
+            )}
+            
+            <VerticalSpace space="large" />
+            <Text>Style Exceptions</Text>
+            <VerticalSpace space="small" />
+            <Textbox
+              placeholder="Enter exception patterns..."
+              value={exceptionPatterns}
+              onChange={handleExceptionPatternsChange}
+            />
+            
+            <VerticalSpace space="large" />
+            <Text style="small">
+              Enter patterns to exclude styles from analysis, separated by commas.
+              For example: "Retail UI/*" will ignore all styles starting with "Retail UI/".
+            </Text>
+          </Container>
+        </div>
+      </Modal>
+      
       {/* Fixed footer with CTA button - hide when modal is open */}
-      {!isAnyModalOpen && (
+      {!isAnyModalOpen && !isSettingsModalOpen && (
         <div style={footerStyle}>
-          <Button 
-            disabled={!hasSingleFrameSelected || !selectedCollectionId || isAnalyzing}
-            fullWidth
-            onClick={handleAnalyzeClick}
-          >
-            {isAnalyzing ? 'Analyzing...' : 'Analyze Frame'}
-          </Button>
+          {currentTab === 'Linter' && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <IconButton 
+                onClick={handleOpenSettingsModal}
+                style={{ 
+                  border: '1px solid rgba(0, 0, 0, 0.1)', 
+                  borderRadius: '6px', 
+                  padding: '8px',
+                  color: '#666666' // Darker gray color for the icon
+                }}
+              >
+                <IconAdjust16 />
+              </IconButton>
+              <Button 
+                disabled={!hasSingleFrameSelected || !selectedCollectionId || isAnalyzing}
+                onClick={handleAnalyzeClick}
+              >
+                {isAnalyzing ? 'Analyzing...' : 'Run Linter'}
+              </Button>
+            </div>
+          )}
+          {currentTab === 'Reviewer' && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button 
+                disabled={!hasSingleFrameSelected}
+              >
+                Run Reviewer
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
