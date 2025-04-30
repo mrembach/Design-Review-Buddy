@@ -20,7 +20,11 @@ import {
   SelectLayerHandler,
   ApplyRecommendationHandler,
   VariableBindableNode,
-  VariableBindableNodeField
+  VariableBindableNodeField,
+  // New Reviewer types
+  RunReviewerHandler,
+  FrameImageData,
+  FrameImageExportedHandler
 } from './types'
 
 // Store collections data in the main context
@@ -2158,6 +2162,46 @@ export default async function () {
       } catch (error) {
         console.error('Error applying recommendation:', error)
         figma.notify('Error applying recommendation', { error: true })
+      }
+    })
+    
+    // Handle Run Reviewer event
+    on<RunReviewerHandler>('RUN_REVIEWER', async function () {
+      console.log('Run Reviewer event received')
+      
+      if (!hasSingleFrameSelected) {
+        console.log('No single frame selected')
+        return
+      }
+      
+      try {
+        const frame = figma.currentPage.selection[0] as FrameNode
+        console.log('Exporting frame:', frame.name)
+        
+        // Export the frame as PNG
+        const bytes = await frame.exportAsync({
+          format: 'PNG',
+          constraint: { type: 'SCALE', value: 2 }
+        })
+        
+        // Convert to base64 for sending to UI
+        const base64Image = figma.base64Encode(bytes)
+        const imageUrl = `data:image/png;base64,${base64Image}`
+        
+        // Send the image data to the UI
+        const frameImageData: FrameImageData = {
+          imageUrl,
+          width: frame.width,
+          height: frame.height,
+          frameName: frame.name,
+          frameId: frame.id
+        }
+        
+        console.log('Frame exported successfully')
+        emit<FrameImageExportedHandler>('FRAME_IMAGE_EXPORTED', frameImageData)
+      } catch (error) {
+        console.error('Error exporting frame:', error)
+        figma.notify('Error exporting frame', { error: true })
       }
     })
     
