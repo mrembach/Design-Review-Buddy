@@ -200,22 +200,3 @@ export interface ToggleExcludeLockedLayersHandler extends EventHandler {
   name: 'TOGGLE_EXCLUDE_LOCKED_LAYERS'
   handler: (exclude: boolean) => void
 }
-
-// New types for Reviewer functionality
-export interface FrameImageData {
-  imageUrl: string;
-  width: number;
-  height: number;
-  frameName: string;
-  frameId: string;
-}
-
-export interface RunReviewerHandler extends EventHandler {
-  name: 'RUN_REVIEWER'
-  handler: () => void
-}
-
-export interface FrameImageExportedHandler extends EventHandler {
-  name: 'FRAME_IMAGE_EXPORTED'
-  handler: (frameImageData: FrameImageData) => void
-}
