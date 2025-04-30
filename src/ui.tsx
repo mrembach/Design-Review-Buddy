@@ -1100,9 +1100,8 @@ function Plugin() {
         <Text>Frame Reviewer</Text>
         <VerticalSpace space="large" />
         
-        {!hasSingleFrameSelected ? (
-          <Text>Select a single frame to review</Text>
-        ) : frameImage ? (
+        {/* Prioritize showing results if they exist */}
+        {frameImage ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <Text style="bold">{frameImage.frameName}</Text>
             <VerticalSpace space="small" />
@@ -1223,6 +1222,8 @@ function Plugin() {
             <VerticalSpace space="small" />
             <Text>Exporting frame...</Text>
           </div>
+        ) : !hasSingleFrameSelected ? (
+          <Text>Select a single frame to review</Text>
         ) : (
           <Text>Click "Run Reviewer" to export the selected frame</Text>
         )}
