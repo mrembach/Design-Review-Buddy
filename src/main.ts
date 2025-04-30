@@ -20,7 +20,11 @@ import {
   SelectLayerHandler,
   ApplyRecommendationHandler,
   VariableBindableNode,
-  VariableBindableNodeField
+  VariableBindableNodeField,
+  // New Reviewer types
+  RunReviewerHandler,
+  FrameImageData,
+  FrameImageExportedHandler
 } from './types'
 
 // Store collections data in the main context
@@ -1748,11 +1752,10 @@ function findContextAwareColorMatch(
 export default async function () {
   console.log('=== Plugin Initialization ===')
   
-  // Show UI first with increased size
+  // Initialize plugin UI
   showUI({
-    height: 480,
-    width: 360,
-    title: 'Design Review Buddy'
+    width: 400,
+    height: 600
   })
   
   // Add a longer delay to ensure UI is ready
@@ -1865,15 +1868,20 @@ export default async function () {
       }
     })
 
-    // Handle frame selection changes
+    // Handle frame selection change events
     figma.on('selectionchange', () => {
       const selection = figma.currentPage.selection
-      const newHasSingleFrameSelected = selection.length === 1 && selection[0].type === 'FRAME'
+      console.log('Selection changed:', selection.length, 'nodes selected')
+
+      const hasSingleFrameSelected = selection.length === 1 && (
+        selection[0].type === 'FRAME' ||
+        selection[0].type === 'COMPONENT' ||
+        selection[0].type === 'INSTANCE'
+      )
       
-      if (newHasSingleFrameSelected !== hasSingleFrameSelected) {
-        hasSingleFrameSelected = newHasSingleFrameSelected
-        emit<FrameSelectionHandler>('FRAME_SELECTION_CHANGED', hasSingleFrameSelected)
-      }
+      console.log('Has single frame selected:', hasSingleFrameSelected)
+      
+      emit<FrameSelectionHandler>('FRAME_SELECTION_CHANGED', hasSingleFrameSelected)
     })
 
     // Handle frame analysis
@@ -2174,4 +2182,46 @@ export default async function () {
     figma.notify('Error initializing plugin', { error: true })
     emit<InitializeHandler>('INITIALIZE', [])
   }
+
+  // Handle reviewer run events
+  on<RunReviewerHandler>('RUN_REVIEWER', async function() {
+    console.log('Run Reviewer called')
+    
+    const selection = figma.currentPage.selection
+    if (selection.length !== 1 || !['FRAME', 'COMPONENT', 'INSTANCE'].includes(selection[0].type)) {
+      console.error('No single frame selected')
+      return
+    }
+    
+    const selectedNode = selection[0]
+    console.log('Selected node for review:', selectedNode.name)
+    
+    try {
+      // Export frame as PNG
+      const exportOptions = { format: 'PNG' as const }
+      const imageData = await selectedNode.exportAsync(exportOptions)
+      
+      // Convert the image data to a URL
+      const imageUrl = URL.createObjectURL(new Blob([imageData], { type: 'image/png' }))
+      
+      // Send the image data back to the UI
+      const frameImageData: FrameImageData = {
+        imageUrl,
+        width: selectedNode.width,
+        height: selectedNode.height,
+        frameName: selectedNode.name,
+        frameId: selectedNode.id
+      }
+      
+      console.log('Exported frame image:', {
+        width: frameImageData.width,
+        height: frameImageData.height,
+        name: frameImageData.frameName
+      })
+      
+      emit<FrameImageExportedHandler>('FRAME_IMAGE_EXPORTED', frameImageData)
+    } catch (error) {
+      console.error('Error exporting frame:', error)
+    }
+  })
 }

@@ -43,7 +43,10 @@ import {
   SelectLayerHandler,
   LibraryVariables,
   LibraryVariablesHandler,
-  ApplyRecommendationHandler
+  ApplyRecommendationHandler,
+  RunReviewerHandler,
+  FrameImageData,
+  FrameImageExportedHandler
 } from './types'
 
 // CSS for fixed footer
@@ -430,6 +433,10 @@ function Plugin() {
   const [isAnyModalOpen, setIsAnyModalOpen] = useState<boolean>(false)
   const [appliedRecommendationsCount, setAppliedRecommendationsCount] = useState<number>(0)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false)
+  
+  // Reviewer-specific state
+  const [isReviewing, setIsReviewing] = useState<boolean>(false)
+  const [frameImage, setFrameImage] = useState<FrameImageData | null>(null)
 
   // Initialize
   useEffect(function () {
@@ -602,6 +609,25 @@ function Plugin() {
   const handleCloseSettingsModal = useCallback(() => {
     setIsSettingsModalOpen(false);
   }, []);
+
+  // Handle Run Reviewer click
+  const handleRunReviewerClick = useCallback(() => {
+    setIsReviewing(true)
+    setFrameImage(null)
+    emit<RunReviewerHandler>('RUN_REVIEWER')
+  }, [])
+
+  // Listen for frame image exported event
+  useEffect(() => {
+    return on<FrameImageExportedHandler>(
+      'FRAME_IMAGE_EXPORTED',
+      function (frameImageData: FrameImageData) {
+        console.log('Received frame image:', frameImageData.frameName)
+        setFrameImage(frameImageData)
+        setIsReviewing(false)
+      }
+    )
+  }, [])
 
   // Helper function to get the correct icon based on node type
   const getNodeTypeIcon = (nodeType: string, layoutMode?: string) => {
@@ -952,9 +978,45 @@ function Plugin() {
     <div style={contentStyle}>
       <Container space="medium">
         <VerticalSpace space="large" />
-        <Text>Reviewer Options</Text>
+        <Text>Frame Reviewer</Text>
         <VerticalSpace space="large" />
-        <Text>This tab will contain reviewer-specific functionality</Text>
+        
+        {!hasSingleFrameSelected ? (
+          <Text>Select a single frame to review</Text>
+        ) : frameImage ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Text style="bold">{frameImage.frameName}</Text>
+            <VerticalSpace space="small" />
+            <div style={{ 
+              maxWidth: '100%', 
+              maxHeight: '400px', 
+              overflow: 'auto',
+              border: '1px solid #E5E5E5',
+              borderRadius: '4px',
+              padding: '8px'
+            }}>
+              <img 
+                src={frameImage.imageUrl} 
+                alt={frameImage.frameName}
+                style={{ 
+                  maxWidth: '100%', 
+                  height: 'auto',
+                  display: 'block'
+                }} 
+              />
+            </div>
+            <VerticalSpace space="medium" />
+            <Text>Frame dimensions: {frameImage.width}px × {frameImage.height}px</Text>
+          </div>
+        ) : isReviewing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <LoadingIndicator />
+            <VerticalSpace space="small" />
+            <Text>Exporting frame...</Text>
+          </div>
+        ) : (
+          <Text>Click "Run Reviewer" to export the selected frame</Text>
+        )}
       </Container>
     </div>
   )
@@ -1053,9 +1115,10 @@ function Plugin() {
           {currentTab === 'Reviewer' && (
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button 
-                disabled={!hasSingleFrameSelected}
+                disabled={!hasSingleFrameSelected || isReviewing}
+                onClick={handleRunReviewerClick}
               >
-                Run Reviewer
+                {isReviewing ? 'Exporting...' : 'Run Reviewer'}
               </Button>
             </div>
           )}
