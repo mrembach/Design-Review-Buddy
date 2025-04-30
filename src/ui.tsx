@@ -433,6 +433,7 @@ function Plugin() {
   const [isAnyModalOpen, setIsAnyModalOpen] = useState<boolean>(false)
   const [appliedRecommendationsCount, setAppliedRecommendationsCount] = useState<number>(0)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false)
+  const [isReviewerSettingsModalOpen, setIsReviewerSettingsModalOpen] = useState<boolean>(false)
   
   // Reviewer-specific state
   const [isReviewing, setIsReviewing] = useState<boolean>(false)
@@ -601,14 +602,23 @@ function Plugin() {
     setAppliedRecommendationsCount(prev => prev + 1);
   }, []);
 
-  // Handler for settings modal
-  const handleOpenSettingsModal = useCallback(() => {
-    setIsSettingsModalOpen(true);
-  }, []);
+  // Settings modal handlers
+  const handleOpenSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsSettingsModalOpen(true)
+  }, [])
 
-  const handleCloseSettingsModal = useCallback(() => {
-    setIsSettingsModalOpen(false);
-  }, []);
+  const handleCloseSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsSettingsModalOpen(false)
+  }, [])
+  
+  // Reviewer settings modal handlers
+  const handleOpenReviewerSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsReviewerSettingsModalOpen(true)
+  }, [])
+
+  const handleCloseReviewerSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsReviewerSettingsModalOpen(false)
+  }, [])
 
   // Handle Run Reviewer click
   const handleRunReviewerClick = useCallback(() => {
@@ -1088,8 +1098,28 @@ function Plugin() {
         </div>
       </Modal>
       
+      {/* Reviewer Settings bottom sheet modal */}
+      <Modal 
+        onCloseButtonClick={handleCloseReviewerSettingsModal} 
+        open={isReviewerSettingsModalOpen} 
+        position="bottom" 
+        title="Reviewer Settings"
+        style={{ height: '88vh' }}
+      >
+        <div style={{ padding: '16px' }}>
+          <Container space="medium">
+            <VerticalSpace space="large" />
+            <Text>Reviewer Settings</Text>
+            <VerticalSpace space="large" />
+            <Text style="small">
+              Configure settings for the design reviewer.
+            </Text>
+          </Container>
+        </div>
+      </Modal>
+      
       {/* Fixed footer with CTA button - hide when modal is open */}
-      {!isAnyModalOpen && !isSettingsModalOpen && (
+      {!isAnyModalOpen && !isSettingsModalOpen && !isReviewerSettingsModalOpen && (
         <div style={footerStyle}>
           {currentTab === 'Linter' && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1113,7 +1143,18 @@ function Plugin() {
             </div>
           )}
           {currentTab === 'Reviewer' && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <IconButton 
+                onClick={handleOpenReviewerSettingsModal}
+                style={{ 
+                  border: '1px solid rgba(0, 0, 0, 0.1)', 
+                  borderRadius: '6px', 
+                  padding: '8px',
+                  color: '#666666' // Darker gray color for the icon
+                }}
+              >
+                <IconAdjust16 />
+              </IconButton>
               <Button 
                 disabled={!hasSingleFrameSelected || isReviewing}
                 onClick={handleRunReviewerClick}
