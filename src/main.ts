@@ -204,76 +204,88 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
   // Check fills
   if ('fills' in node && Array.isArray(node.fills)) {
     node.fills.forEach((fill, index) => {
-      // Get the style ID if the fill is from a style
-      const styleId = (node as any).fillStyleId
-      let collectionId = undefined
-      let variableId = undefined
-      let styleName = undefined
+      if (fill.type === 'SOLID' && fill.visible !== false) {
+        // Get the style ID if the fill is from a style
+        const styleId = (node as any).fillStyleId
+        let collectionId = undefined
+        let variableId = undefined
+        let styleName = undefined
 
-      // Check if it's a style
-      if (styleId) {
-        try {
-          const style = figma.getStyleById(styleId)
-          if (style) {
-            collectionId = style.key
-            styleName = style.name
-            console.log('Found style:', { name: styleName, key: collectionId })
-          }
-        } catch (error) {
-          console.error('Error getting style:', error)
-        }
-      } else if (fill.type === 'SOLID') {
-        // If not a style, check for variable binding
-        const boundVariable = (fill as any).boundVariables?.color
-        variableId = boundVariable?.id
-        collectionId = boundVariable?.collectionId
-
-        if (variableId && !collectionId) {
+        // Check if it's a style
+        if (styleId) {
           try {
-            const variable = figma.variables.getVariableById(variableId)
-            if (variable) {
-              collectionId = variable.variableCollectionId
-              console.log('Found variable collection:', { id: collectionId })
+            const style = figma.getStyleById(styleId)
+            if (style) {
+              collectionId = style.key
+              styleName = style.name
+              console.log('Found style:', { name: styleName, key: collectionId })
             }
           } catch (error) {
-            console.error('Error getting variable:', error)
+            console.error('Error getting style:', error)
           }
-        }
-      }
+        } else {
+          // If not a style, check for variable binding
+          const boundVariable = (fill as any).boundVariables?.color
+          variableId = boundVariable?.id
+          collectionId = boundVariable?.collectionId
 
-      // Only add to properties if we have a style or variable binding
-      if (styleId || collectionId) {
-        const matchResult = isCollectionMatch(collectionId, styleName, selectedCollection?.id, exceptions)
-        console.log('Match result for fill:', { 
-          matchResult, 
-          styleName, 
-          collectionId,
-          isStyle: !!styleId,
-          isVariable: !!variableId
-        })
-        
-        const property: NodeProperty = {
-          name: `Fill ${index + 1}`,
-          value: fill.type === 'SOLID' ? fill.color : fill,
-          formattedValue: formatValue(`Fill ${index + 1}`, fill.type === 'SOLID' ? fill.color : fill),
-          variableId,
-          collectionId,
-          styleName,
-          expectedCollections,
-          isMismatched: !matchResult.isMatch,
-          ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
-        }
-        
-        // Only suggest variables if it's actually mismatched (not matched by exception)
-        if (property.isMismatched && !matchResult.matchedByException) {
-          // Use context-aware color matching instead of simple matching
-          const suggestedVar = findContextAwareColorMatch(node, property.name, property.value)
-          if (suggestedVar) {
-            property.suggestedVariable = makeSerializable(suggestedVar)
+          if (variableId && !collectionId) {
+            try {
+              const variable = figma.variables.getVariableById(variableId)
+              if (variable) {
+                collectionId = variable.variableCollectionId
+                console.log('Found variable collection:', { id: collectionId })
+              }
+            } catch (error) {
+              console.error('Error getting variable:', error)
+            }
           }
         }
+
+        // Determine if this fill is valid to analyze
+        const hasStyle = !!styleId;
+        const hasVariable = !!variableId;
+        const isDetached = !hasStyle && !hasVariable;
         
-        properties.push(property)
+        // Create a property whether it's linked or detached
+        if (hasStyle || hasVariable || isDetached) {
+          // For detached fills, there's no collection match, so force isMismatched = true
+          const matchResult = isDetached ? 
+            { isMatch: false } : 
+            isCollectionMatch(collectionId, styleName, selectedCollection?.id, exceptions);
+            
+          console.log('Match result for fill:', { 
+            matchResult, 
+            styleName, 
+            collectionId,
+            isStyle: hasStyle,
+            isVariable: hasVariable,
+            isDetached
+          });
+          
+          const property: NodeProperty = {
+            name: `Fill ${index + 1}`,
+            value: fill.type === 'SOLID' ? fill.color : fill,
+            formattedValue: formatValue(`Fill ${index + 1}`, fill.type === 'SOLID' ? fill.color : fill),
+            variableId,
+            collectionId,
+            styleName,
+            expectedCollections,
+            isMismatched: !matchResult.isMatch,
+            ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
+          }
+          
+          // Only suggest variables if it's actually mismatched (not matched by exception)
+          if (property.isMismatched && !matchResult.matchedByException) {
+            // Use context-aware color matching instead of simple matching
+            const suggestedVar = findContextAwareColorMatch(node, property.name, property.value)
+            if (suggestedVar) {
+              property.suggestedVariable = makeSerializable(suggestedVar)
+            }
+          }
+          
+          properties.push(property)
+        }
       }
     })
   }
@@ -282,23 +294,44 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
   if ('strokes' in node && Array.isArray(node.strokes)) {
     node.strokes.forEach((stroke, index) => {
       if (stroke.type === 'SOLID') {
-        const boundVariable = (stroke as any).boundVariables?.color
-        const variableId = boundVariable?.id
-        let collectionId = boundVariable?.collectionId
+        // Get the style ID if the stroke is from a style
+        const styleId = (node as any).strokeStyleId
+        let collectionId = undefined
+        let variableId = undefined
+        let styleName = undefined
 
-        // If we have a variableId but no collectionId, try to get it from the variable
-        if (variableId && !collectionId) {
+        // Check if it's a style
+        if (styleId) {
           try {
-            const variable = figma.variables.getVariableById(variableId)
-            if (variable) {
-              collectionId = variable.variableCollectionId
+            const style = figma.getStyleById(styleId)
+            if (style) {
+              collectionId = style.key
+              styleName = style.name
+              console.log('Found stroke style:', { name: styleName, key: collectionId })
             }
           } catch (error) {
-            console.error('Error getting variable:', error)
+            console.error('Error getting stroke style:', error)
+          }
+        } else {
+          // If not a style, check for variable binding
+          const boundVariable = (stroke as any).boundVariables?.color
+          variableId = boundVariable?.id
+          collectionId = boundVariable?.collectionId
+
+          // If we have a variableId but no collectionId, try to get it from the variable
+          if (variableId && !collectionId) {
+            try {
+              const variable = figma.variables.getVariableById(variableId)
+              if (variable) {
+                collectionId = variable.variableCollectionId
+              }
+            } catch (error) {
+              console.error('Error getting variable:', error)
+            }
           }
         }
 
-        const matchResult = isCollectionMatch(collectionId, undefined, selectedCollection?.id, exceptions)
+        const matchResult = isCollectionMatch(collectionId, styleName, selectedCollection?.id, exceptions)
         
         const property: NodeProperty = {
           name: `Stroke ${index + 1}`,
@@ -306,6 +339,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
           formattedValue: formatValue(`Stroke ${index + 1}`, stroke.color),
           variableId,
           collectionId,
+          styleName,
           expectedCollections,
           isMismatched: !matchResult.isMatch,
           ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
@@ -458,6 +492,73 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
       properties.push(property)
     }
   })
+  
+  // Check itemSpacing (gap) in auto-layout frames
+  if (node.type === 'FRAME' && (node as FrameNode).layoutMode !== 'NONE') {
+    const frameNode = node as FrameNode;
+    
+    // Only analyze itemSpacing if it's not using SPACE_BETWEEN alignment
+    // as that causes automatically calculated spacing
+    if (frameNode.itemSpacing !== undefined && 
+        frameNode.itemSpacing !== 0 && 
+        frameNode.primaryAxisAlignItems !== 'SPACE_BETWEEN') {
+      
+      console.log(`\nChecking item spacing (gap):`, frameNode.itemSpacing);
+      
+      // Check for variable binding
+      const boundVariable = (node as any).boundVariables?.itemSpacing;
+      const variableId = boundVariable?.id;
+      let collectionId = boundVariable?.collectionId;
+      
+      // If we have a variableId but no collectionId, try to get it from the variable
+      if (variableId && !collectionId) {
+        try {
+          const variable = figma.variables.getVariableById(variableId);
+          if (variable) {
+            collectionId = variable.variableCollectionId;
+            console.log('Retrieved collection ID from variable:', collectionId);
+          }
+        } catch (error) {
+          console.error('Error getting variable:', error);
+        }
+      }
+      
+      const matchResult = isCollectionMatch(collectionId, undefined, selectedCollection?.id, exceptions);
+      console.log('Match result for gap:', matchResult);
+      
+      const property: NodeProperty = {
+        name: 'Gap',
+        value: frameNode.itemSpacing,
+        formattedValue: formatValue('Gap', frameNode.itemSpacing),
+        variableId,
+        collectionId,
+        expectedCollections,
+        isMismatched: !matchResult.isMatch,
+        ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
+      };
+      
+      if (property.isMismatched) {
+        const suggestedVar = findMatchingVariable(property.value, 'FLOAT');
+        if (suggestedVar) {
+          property.suggestedVariable = makeSerializable(suggestedVar);
+          console.log('Found suggested variable for gap:', suggestedVar);
+        } else {
+          // If no exact match found, look for the closest number variable
+          const closestVar = findClosestNumberVariable(property.value);
+          if (closestVar && closestVar.difference < 2) { // Only suggest if difference is small
+            property.suggestedVariable = makeSerializable({
+              id: closestVar.id,
+              name: closestVar.name,
+              value: closestVar.value
+            });
+            console.log('Found closest variable for gap:', closestVar);
+          }
+        }
+      }
+      
+      properties.push(property);
+    }
+  }
   
   return properties
 }

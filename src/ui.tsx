@@ -63,7 +63,7 @@ const contentStyle = {
 const layerContainer = {
   border: '1px solid #E5E5E5',
   borderRadius: '8px',
-  marginBottom: '16px',
+  marginBottom: '8px',
   overflow: 'hidden',
   padding: '6px 0' // Added 6px top/bottom padding to the entire container
 }
@@ -71,17 +71,15 @@ const layerContainer = {
 // CSS for layer header
 const layerHeader = {
   padding: '4px 12px', // Further reduced top/bottom from 8px to 4px, kept left/right at 12px
-  backgroundColor: 'white',
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
   cursor: 'pointer'
-  // Removed borderBottom
 }
 
 // CSS for properties container
 const propertiesContainer = {
-  padding: '0 6px 0 12px' // 0 top, 6px right, 0 bottom, 12px left padding
+  padding: '0 6px 0 8px' // 0 top, 6px right, 0 bottom, 8px left padding
 }
 
 // CSS for issue row
@@ -95,7 +93,7 @@ const issueRow = {
 
 // CSS for highlighted issue
 const highlightedIssue = {
-  backgroundColor: '#FFF5F5'
+  // Removed backgroundColor
 }
 
 // CSS for issue content
@@ -132,22 +130,62 @@ interface PropertyRowProps {
   description: string
   hasRecommendation: boolean
   onRecommendationClick: () => void
+  onClick?: () => void
 }
 
 function PropertyRow({
   title,
   description,
   hasRecommendation,
-  onRecommendationClick
+  onRecommendationClick,
+  onClick
 }: PropertyRowProps) {
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  
+  const handleMouseEnter = useCallback(() => {
+    setIsHovered(true);
+  }, []);
+  
+  const handleMouseLeave = useCallback(() => {
+    setIsHovered(false);
+  }, []);
+  
+  const handleRowClick = useCallback((event: MouseEvent) => {
+    if (onClick) {
+      onClick();
+    }
+  }, [onClick]);
+  
+  const handleButtonClick = useCallback((event: MouseEvent) => {
+    // Stop propagation to prevent triggering row click
+    event.stopPropagation();
+    onRecommendationClick();
+  }, [onRecommendationClick]);
+  
+  // Apply cursor pointer style to all elements
+  const rowStyle = {
+    position: 'relative' as const,
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    padding: '4px 8px',
+    backgroundColor: isHovered ? '#F5F5F5' : 'transparent',
+    cursor: onClick ? 'pointer' : 'default',
+    width: '100%',
+    borderRadius: '2px'
+  };
+  
+  // Style for text elements to inherit cursor
+  const textStyle = {
+    cursor: 'inherit'
+  };
+  
   return (
-    <div style={{ 
-      position: 'relative',
-      display: 'flex',
-      alignItems: 'center',
-      padding: '4px 0' // Reduced from 8px to 4px
-      // Removed borderBottom
-    }}>
+    <div 
+      style={rowStyle}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onClick={handleRowClick}
+    >
       {/* Content */}
       <div style={{
         display: 'flex',
@@ -155,10 +193,11 @@ function PropertyRow({
         alignItems: 'center',
         gap: '8px',
         flex: 1,
-        paddingRight: '0' // Removed padding completely
+        paddingRight: '0',
+        cursor: 'inherit'
       }}>
-        <Text style="bold"><span style={redTextStyle}>{title}</span></Text>
-        <span style={faintRedTextStyle}>{description}</span>
+        <Text style="bold"><span style={{...redTextStyle, ...textStyle}}>{title}</span></Text>
+        <span style={{...faintRedTextStyle, ...textStyle}}>{description}</span>
       </div>
       
       {/* Recommendation icon */}
@@ -170,7 +209,7 @@ function PropertyRow({
           transform: 'translateY(-50%)',
           zIndex: 1
         }}>
-          <IconButton onClick={onRecommendationClick}>
+          <IconButton onClick={handleButtonClick}>
             <div style={aiIconStyle}>
               <IconAi16 />
             </div>
@@ -396,6 +435,139 @@ function Plugin() {
             return null;
           }
 
+          // Group radius and padding properties
+          const groupedProperties: {[key: string]: Array<NodeProperty>} = {};
+          const standardProperties: Array<NodeProperty> = [];
+          
+          // Sort properties into groups
+          mismatchedProperties.forEach(prop => {
+            if (prop.name.includes('Corner Radius')) {
+              if (!groupedProperties['Radius']) {
+                groupedProperties['Radius'] = [];
+              }
+              groupedProperties['Radius'].push(prop);
+            } else if (prop.name.includes('Padding')) {
+              if (!groupedProperties['Padding']) {
+                groupedProperties['Padding'] = [];
+              }
+              groupedProperties['Padding'].push(prop);
+            } else if (prop.name === 'Gap') {
+              if (!groupedProperties['Gap']) {
+                groupedProperties['Gap'] = [];
+              }
+              groupedProperties['Gap'].push(prop);
+            } else {
+              standardProperties.push(prop);
+            }
+          });
+          
+          // Prepare all properties to render (grouped + standard)
+          const propertiesToRender: Array<{
+            key: string,
+            title: string,
+            description: string,
+            hasRecommendation: boolean,
+            originalProps: Array<NodeProperty>
+          }> = [];
+          
+          // Add grouped properties
+          Object.entries(groupedProperties).forEach(([groupName, props]) => {
+            // Extract just the values to display, without direction labels
+            const values = props.map(p => {
+              // Get just the numeric value
+              const valueMatch = p.formattedValue.match(/\d+(\.\d+)?/);
+              return valueMatch ? valueMatch[0] : p.formattedValue;
+            });
+            
+            // Determine if properties are detached, wrong lib, or mixed
+            const hasDetached = props.some(p => !p.variableId && !p.styleName);
+            const hasWrongLib = props.some(p => p.collectionId && p.isMismatched);
+            
+            let statusText = "";
+            if (hasDetached && hasWrongLib) {
+              statusText = "Detached & Wrong lib";
+            } else if (hasDetached) {
+              statusText = "Detached";
+            } else if (hasWrongLib) {
+              statusText = "Wrong lib";
+            }
+            
+            // Check if any property has a recommendation
+            const hasRecommendation = props.some(p => !!p.suggestedVariable);
+            
+            propertiesToRender.push({
+              key: `${result.nodeId}-${groupName}`,
+              title: groupName,
+              description: `${statusText} (${values.join(', ')})`,
+              hasRecommendation,
+              originalProps: props
+            });
+          });
+          
+          // Add standard properties
+          standardProperties.forEach((prop, propIndex) => {
+            const isUnlinked = !prop.variableId && !prop.styleName;
+            const hasRecommendation = !!prop.suggestedVariable;
+            
+            // Create the description text for display
+            const layerText = prop.name
+              .replace(/Fill \d+/, 'Color fill')
+              .replace(/Stroke \d+/, 'Stroke color');
+            
+            // Check if it's a color property (stroke or fill)
+            const isColorProperty = prop.name.includes('Fill') || prop.name.includes('Stroke');
+            
+            // Format the description text
+            let descriptionText = '';
+            if (isUnlinked) {
+              // Extract the value from the formattedValue for detached items (no variable or style)
+              if (isColorProperty && prop.formattedValue.startsWith('#')) {
+                // For colors, show the hex value
+                descriptionText = `Detached (${prop.formattedValue})`;
+              } else {
+                const valueMatch = prop.formattedValue.match(/\d+(\.\d+)?/);
+                const valueStr = valueMatch ? valueMatch[0] : prop.formattedValue;
+                descriptionText = `Detached (${valueStr})`;
+              }
+            } else if (prop.isMismatched) {
+              // For mismatched but linked items (wrong library)
+              // Check if it has a collection ID (linked to variable/style but wrong library)
+              if (prop.collectionId) {
+                // If it has a style name, prioritize showing that
+                if (prop.styleName) {
+                  const truncatedName = prop.styleName.length > 19 
+                    ? prop.styleName.substring(0, 19) + '...' 
+                    : prop.styleName;
+                  descriptionText = `Wrong lib (${truncatedName})`;
+                } else {
+                  // For variables without a style name, show the variable or color value
+                  const displayValue = prop.variableId ? 'variable' : prop.formattedValue;
+                  const truncatedName = displayValue.length > 19 
+                    ? displayValue.substring(0, 19) + '...' 
+                    : displayValue;
+                  descriptionText = `Wrong lib (${truncatedName})`;
+                }
+              } else {
+                // It's a value without a collection ID
+                if (isColorProperty && prop.formattedValue.startsWith('#')) {
+                  descriptionText = `Detached (${prop.formattedValue})`;
+                } else {
+                  descriptionText = `Detached (${prop.formattedValue})`;
+                }
+              }
+            } else {
+              descriptionText = prop.styleName || prop.formattedValue;
+            }
+            
+            propertiesToRender.push({
+              key: `${result.nodeId}-${propIndex}`,
+              title: layerText,
+              description: descriptionText,
+              hasRecommendation,
+              originalProps: [prop]
+            });
+          });
+
           return (
             <div style={layerContainer} key={result.nodeId}>
               {/* Layer header */}
@@ -409,42 +581,19 @@ function Plugin() {
 
               {/* Layer properties */}
               <div style={propertiesContainer}>
-                {mismatchedProperties.map((prop, propIndex) => {
-                  const isUnlinked = !prop.variableId && !prop.styleName;
-                  const hasRecommendation = !!prop.suggestedVariable;
-                  const itemId = `${result.nodeId}-${propIndex}`;
-                  const isChecked = checkedItems[itemId] || false;
-                  
-                  // Create the description text for display
-                  const layerText = prop.name
-                    .replace(/Fill \d+/, 'Color fill')
-                    .replace(/Stroke \d+/, 'Stroke color');
-                  
-                  // Format the description text
-                  let descriptionText = '';
-                  if (isUnlinked) {
-                    // Extract the value from the formattedValue for detached items
-                    const valueMatch = prop.formattedValue.match(/\d+(\.\d+)?/);
-                    const valueStr = valueMatch ? valueMatch[0] : prop.formattedValue;
-                    descriptionText = `Detached (${valueStr})`;
-                  } else if (prop.isMismatched) {
-                    // For mismatched but linked items (wrong library)
-                    const styleName = prop.styleName || prop.formattedValue;
-                    const truncatedName = styleName.length > 19 
-                      ? styleName.substring(0, 19) + '...' 
-                      : styleName;
-                    descriptionText = `Wrong lib (${truncatedName})`;
-                  } else {
-                    descriptionText = prop.styleName || prop.formattedValue;
-                  }
-                  
+                {propertiesToRender.map((propInfo) => {
                   return (
                     <PropertyRow
-                      key={itemId}
-                      title={layerText}
-                      description={descriptionText}
-                      hasRecommendation={hasRecommendation}
-                      onRecommendationClick={() => console.log('Recommendation clicked', prop.suggestedVariable)}
+                      key={propInfo.key}
+                      title={propInfo.title}
+                      description={propInfo.description}
+                      hasRecommendation={propInfo.hasRecommendation}
+                      onRecommendationClick={() => {
+                        // If multiple properties, just use the first one's recommendation for now
+                        const prop = propInfo.originalProps[0];
+                        console.log('Recommendation clicked', prop.suggestedVariable);
+                      }}
+                      onClick={() => handleSelectLayer(result.nodeId)}
                     />
                   );
                 })}
@@ -464,7 +613,13 @@ function Plugin() {
         
         {hasResults ? (
           <div>
-            <Text style="bold">Analysis Results</Text>
+            <div style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+              <Text style="bold">
+                {analysisResults.reduce((count, result) => 
+                  count + result.properties.filter(prop => prop.isMismatched).length, 0
+                )} Issues found
+              </Text>
+            </div>
             <VerticalSpace space="medium" />
             {renderAnalysisResults()}
           </div>
