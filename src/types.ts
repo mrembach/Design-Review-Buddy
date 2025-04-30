@@ -40,6 +40,7 @@ export interface NodeProperty {
     id: string
     name: string
   }>
+  nodeId?: string
 }
 
 export interface AnalysisResult {
@@ -90,6 +91,11 @@ export interface AnalysisResultsHandler extends EventHandler {
 export interface SelectLayerHandler extends EventHandler {
   name: 'SELECT_LAYER'
   handler: (nodeId: string) => void
+}
+
+export interface ApplyRecommendationHandler extends EventHandler {
+  name: 'APPLY_RECOMMENDATION'
+  handler: (nodeId: string, property: NodeProperty, suggestedVariable: { id: string; name: string; value: any }) => void
 }
 
 export type VariableResolvedDataType = 'COLOR' | 'FLOAT' | 'STRING' | 'BOOLEAN';

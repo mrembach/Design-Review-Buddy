@@ -1,4 +1,4 @@
-import { h, JSX } from 'preact'
+import { h, JSX, Fragment } from 'preact'
 import { useCallback, useEffect, useState } from 'preact/hooks'
 import {
   Button,
@@ -18,13 +18,15 @@ import {
   IconPen16,
   IconAutoLayoutHorizontalCenter16,
   IconAutoLayoutVerticalCenter16,
+  IconApprovedCheckmark16,
   Checkbox,
   MiddleAlign,
   Muted,
   render,
   Stack,
   Divider,
-  Bold
+  Bold,
+  Modal
 } from '@create-figma-plugin/ui'
 import { emit, on } from '@create-figma-plugin/utilities'
 
@@ -39,7 +41,8 @@ import {
   NodeProperty,
   SelectLayerHandler,
   LibraryVariables,
-  LibraryVariablesHandler
+  LibraryVariablesHandler,
+  ApplyRecommendationHandler
 } from './types'
 
 // CSS for fixed footer
@@ -70,16 +73,16 @@ const layerContainer = {
 
 // CSS for layer header
 const layerHeader = {
-  padding: '4px 12px', // Further reduced top/bottom from 8px to 4px, kept left/right at 12px
+  padding: '4px 10px', // Reduced from 4px 12px to 4px 10px (reduced by 2px)
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
+  gap: '4px', // Reduced from 8px to 4px to bring icon and text closer together
   cursor: 'pointer'
 }
 
 // CSS for properties container
 const propertiesContainer = {
-  padding: '0 6px 0 8px' // 0 top, 6px right, 0 bottom, 8px left padding
+  padding: '0 6px 0 6px' // Changed left padding from 8px to 6px, kept 0 top/bottom and 6px right
 }
 
 // CSS for issue row
@@ -109,6 +112,11 @@ const aiIconStyle = {
   opacity: 0.8
 }
 
+// Add style for success icons
+const successIconStyle = {
+  color: '#2E7D32', // Darker success green color
+}
+
 // Add style objects for red text colors
 const redTextStyle = {
   color: '#E62E2E', // Strong red color
@@ -119,9 +127,32 @@ const faintRedTextStyle = {
   color: '#E62E2E' // Changed from lighter red to standard red
 }
 
+// Add style objects for success text colors
+const successTextStyle = {
+  color: '#2E7D32', // Darker success green color
+  fontWeight: 600 // Make property titles heavier
+}
+
+const faintSuccessTextStyle = {
+  color: '#2E7D32' // Darker success green color
+}
+
 // CSS for subdued text
 const subduedTextStyle = {
   color: '#8C8C8C' // Subdued grey color
+}
+
+// CSS for smaller icons
+const iconSizeStyle = {
+  transform: 'scale(0.85)', // Make icons slightly smaller (85% of original size)
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center'
+}
+
+// CSS for modal z-index (higher than footer)
+const modalStyle = {
+  zIndex: 10 // Higher than the footer's z-index (2)
 }
 
 // Custom PropertyRow component (no left icon, with optional right icon)
@@ -131,6 +162,9 @@ interface PropertyRowProps {
   hasRecommendation: boolean
   onRecommendationClick: () => void
   onClick?: () => void
+  originalProps: Array<NodeProperty>
+  onModalOpen?: () => void
+  onModalClose?: () => void
 }
 
 function PropertyRow({
@@ -138,9 +172,14 @@ function PropertyRow({
   description,
   hasRecommendation,
   onRecommendationClick,
-  onClick
+  onClick,
+  originalProps,
+  onModalOpen,
+  onModalClose
 }: PropertyRowProps) {
   const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isApplied, setIsApplied] = useState<boolean>(false);
   
   const handleMouseEnter = useCallback(() => {
     setIsHovered(true);
@@ -156,67 +195,207 @@ function PropertyRow({
     }
   }, [onClick]);
   
-  const handleButtonClick = useCallback((event: MouseEvent) => {
+  const handleButtonClick = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    // Don't do anything if already applied
+    if (isApplied) return;
+
     // Stop propagation to prevent triggering row click
     event.stopPropagation();
-    onRecommendationClick();
-  }, [onRecommendationClick]);
+    
+    // Open the modal
+    setIsModalOpen(true);
+    if (onModalOpen) onModalOpen();
+    
+    // Also select the layer (if onClick is provided)
+    if (onClick) {
+      onClick();
+    }
+  }, [onModalOpen, onClick, isApplied]);
   
-  // Apply cursor pointer style to all elements
-  const rowStyle = {
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    if (onModalClose) onModalClose();
+  }, [onModalClose]);
+  
+  const handleApplyRecommendation = useCallback(() => {
+    // Only apply if we have the necessary data
+    if (originalProps && originalProps.length > 0) {
+      const prop = originalProps[0];
+      if (prop.suggestedVariable && onClick) {
+        // First, select the layer
+        onClick();
+        
+        // Then apply the recommendation by sending data to the main plugin context
+        const nodeId = prop.nodeId || '';
+        emit<ApplyRecommendationHandler>(
+          'APPLY_RECOMMENDATION', 
+          nodeId, 
+          prop, 
+          prop.suggestedVariable
+        );
+        
+        console.log('Applying recommendation:', {
+          nodeId,
+          property: prop,
+          suggestion: prop.suggestedVariable
+        });
+        
+        // Mark as applied
+        setIsApplied(true);
+      }
+    }
+    
+    // Close the modal after applying
+    setIsModalOpen(false);
+    if (onModalClose) onModalClose();
+  }, [originalProps, onClick, onModalClose]);
+  
+  // Outer container style (no hover/click behavior)
+  const containerStyle = {
     position: 'relative' as const,
+    display: 'flex' as const,
+    alignItems: 'center' as const,
+    width: '100%',
+  };
+  
+  // Apply cursor pointer style to the clickable row part only
+  const rowStyle = {
     display: 'flex' as const,
     alignItems: 'center' as const,
     padding: '4px 8px',
     backgroundColor: isHovered ? '#F5F5F5' : 'transparent',
     cursor: onClick ? 'pointer' : 'default',
-    width: '100%',
-    borderRadius: '2px'
+    flex: '1',
+    borderRadius: '2px',
+    // Add right padding to create space for the button
+    paddingRight: hasRecommendation ? '32px' : '8px'
   };
   
   // Style for text elements to inherit cursor
   const textStyle = {
     cursor: 'inherit'
   };
-  
+
+  // Style for modal content
+  const modalContentStyle = {
+    padding: '16px',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '16px'
+  };
+
+  // Get the suggested variable if available
+  const suggestedVariable = originalProps && 
+    originalProps.length > 0 && 
+    originalProps[0].suggestedVariable ? 
+    originalProps[0].suggestedVariable : null;
+
+  // Choose text style based on application status
+  const titleTextStyle = isApplied ? successTextStyle : redTextStyle;
+  const descriptionTextStyle = isApplied ? faintSuccessTextStyle : faintRedTextStyle;
+
   return (
-    <div 
-      style={rowStyle}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      onClick={handleRowClick}
-    >
-      {/* Content */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: '8px',
-        flex: 1,
-        paddingRight: '0',
-        cursor: 'inherit'
-      }}>
-        <Text style="bold"><span style={{...redTextStyle, ...textStyle}}>{title}</span></Text>
-        <span style={{...faintRedTextStyle, ...textStyle}}>{description}</span>
+    <Fragment>
+      <div style={containerStyle}>
+        {/* Clickable row part */}
+        <div 
+          style={rowStyle}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onClick={handleRowClick}
+        >
+          <div style={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: '8px',
+            flex: 1,
+            cursor: 'inherit'
+          }}>
+            <Text style="bold"><span style={{...titleTextStyle, ...textStyle}}>{title}</span></Text>
+            <span style={{...descriptionTextStyle, ...textStyle}}>{isApplied ? 'Fixed' : description}</span>
+          </div>
+        </div>
+        
+        {/* Recommendation or Success icon */}
+        {hasRecommendation && (
+          <div style={{
+            position: 'absolute',
+            right: '0',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            zIndex: 1
+          }}>
+            <IconButton onClick={handleButtonClick} disabled={isApplied}>
+              <div style={isApplied ? successIconStyle : aiIconStyle}>
+                {isApplied ? <IconApprovedCheckmark16 /> : <IconAi16 />}
+              </div>
+            </IconButton>
+          </div>
+        )}
       </div>
       
-      {/* Recommendation icon */}
-      {hasRecommendation && (
-        <div style={{
-          position: 'absolute',
-          right: '0',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          zIndex: 1
-        }}>
-          <IconButton onClick={handleButtonClick}>
-            <div style={aiIconStyle}>
-              <IconAi16 />
+      {/* Bottom sheet modal */}
+      <Modal 
+        onCloseButtonClick={handleCloseModal} 
+        open={isModalOpen} 
+        position="bottom" 
+        title={`AI Recommendation for ${title}`}
+        onOverlayClick={handleCloseModal}
+        onEscapeKeyDown={handleCloseModal}
+        style={modalStyle}
+      >
+        <div style={modalContentStyle}>
+          <div>
+            <Text style="bold">Current Value</Text>
+            <VerticalSpace space="small" />
+            <Text>{description}</Text>
+          </div>
+          
+          {suggestedVariable && (
+            <div>
+              <Text style="bold">Suggested Fix</Text>
+              <VerticalSpace space="small" />
+              <Text>Use the variable: "{suggestedVariable.name}" with value: {
+                typeof suggestedVariable.value === 'object' && 'r' in suggestedVariable.value
+                ? `#${Math.round(suggestedVariable.value.r * 255).toString(16).padStart(2, '0')}${
+                     Math.round(suggestedVariable.value.g * 255).toString(16).padStart(2, '0')}${
+                     Math.round(suggestedVariable.value.b * 255).toString(16).padStart(2, '0')}`
+                : suggestedVariable.value
+              }</Text>
             </div>
-          </IconButton>
+          )}
+          
+          {!suggestedVariable && (
+            <div>
+              <Text style="bold">No Specific Suggestion Available</Text>
+              <VerticalSpace space="small" />
+              <Text>We recommend using variables from the selected design system library.</Text>
+            </div>
+          )}
+          
+          {/* Bottom section with action button */}
+          <VerticalSpace space="medium" />
+          {suggestedVariable ? (
+            <Button 
+              fullWidth 
+              onClick={handleApplyRecommendation}
+              secondary={false} // Primary button styling
+            >
+              Apply recommendation
+            </Button>
+          ) : (
+            <Button 
+              fullWidth 
+              onClick={handleCloseModal}
+              secondary={true} // Secondary button styling
+            >
+              Close
+            </Button>
+          )}
         </div>
-      )}
-    </div>
+      </Modal>
+    </Fragment>
   )
 }
 
@@ -233,6 +412,7 @@ function Plugin() {
   const [libraryVariables, setLibraryVariables] = useState<Array<LibraryVariables>>([])
   const [currentTab, setCurrentTab] = useState<string>('lint')
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({})
+  const [isAnyModalOpen, setIsAnyModalOpen] = useState<boolean>(false)
 
   // Initialize
   useEffect(function () {
@@ -380,11 +560,21 @@ function Plugin() {
     }
   }, [])
 
+  // Handler for when any modal opens
+  const handleModalOpen = useCallback(() => {
+    setIsAnyModalOpen(true);
+  }, []);
+  
+  // Handler for when any modal closes
+  const handleModalClose = useCallback(() => {
+    setIsAnyModalOpen(false);
+  }, []);
+
   // Helper function to get the correct icon based on node type
   const getNodeTypeIcon = (nodeType: string, layoutMode?: string) => {
-    // Create a wrapper component to apply the subdued style
+    // Create a wrapper component to apply the subdued style and smaller size
     const IconWrapper = (props: { children: JSX.Element }) => (
-      <div style={subduedTextStyle}>{props.children}</div>
+      <div style={{...subduedTextStyle, ...iconSizeStyle}}>{props.children}</div>
     );
 
     // Check for frames with auto-layout
@@ -594,6 +784,9 @@ function Plugin() {
                         console.log('Recommendation clicked', prop.suggestedVariable);
                       }}
                       onClick={() => handleSelectLayer(result.nodeId)}
+                      originalProps={propInfo.originalProps}
+                      onModalOpen={handleModalOpen}
+                      onModalClose={handleModalClose}
                     />
                   );
                 })}
@@ -696,16 +889,18 @@ function Plugin() {
         value={currentTab}
       />
       
-      {/* Fixed footer with CTA button */}
-      <div style={footerStyle}>
-        <Button 
-          disabled={!hasSingleFrameSelected || !selectedCollectionId || isAnalyzing}
-          fullWidth
-          onClick={handleAnalyzeClick}
-        >
-          {isAnalyzing ? 'Analyzing...' : 'Analyze Frame'}
-        </Button>
-      </div>
+      {/* Fixed footer with CTA button - hide when modal is open */}
+      {!isAnyModalOpen && (
+        <div style={footerStyle}>
+          <Button 
+            disabled={!hasSingleFrameSelected || !selectedCollectionId || isAnalyzing}
+            fullWidth
+            onClick={handleAnalyzeClick}
+          >
+            {isAnalyzing ? 'Analyzing...' : 'Analyze Frame'}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

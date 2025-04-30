@@ -17,7 +17,8 @@ import {
   LibraryVariablesHandler,
   LibraryVariable,
   VariableResolvedDataType,
-  SelectLayerHandler
+  SelectLayerHandler,
+  ApplyRecommendationHandler
 } from './types'
 
 // Store collections data in the main context
@@ -31,9 +32,21 @@ let hasSingleFrameSelected = false
 function findMatchingVariable(value: any, type: string): { id: string; name: string; value: any } | undefined {
   if (!selectedCollection?.variables) return undefined
   
-  const matchingVariable = selectedCollection.variables.find(variable => {
-    if (variable.type !== type) return false
+  // For FLOAT type variables, filter out variables with "text" in their name
+  const eligibleVariables = selectedCollection.variables.filter(variable => {
+    if (variable.type !== type) return false;
     
+    // For FLOAT variables, exclude any with "text" in the name
+    if (type === 'FLOAT' && variable.name.toLowerCase().includes('text')) {
+      return false;
+    }
+    
+    return true;
+  });
+  
+  console.log(`Found ${eligibleVariables.length} eligible ${type} variables to match against`);
+  
+  const matchingVariable = eligibleVariables.find(variable => {
     // First check if the variable has a resolved value
     if ('resolvedValue' in variable) {
       console.log(`Checking variable ${variable.name} resolved value:`, variable.resolvedValue);
@@ -272,6 +285,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
             styleName,
             expectedCollections,
             isMismatched: !matchResult.isMatch,
+            nodeId: node.id, // Add nodeId to each property
             ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
           }
           
@@ -307,10 +321,9 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
             if (style) {
               collectionId = style.key
               styleName = style.name
-              console.log('Found stroke style:', { name: styleName, key: collectionId })
             }
           } catch (error) {
-            console.error('Error getting stroke style:', error)
+            console.error('Error getting style:', error)
           }
         } else {
           // If not a style, check for variable binding
@@ -318,7 +331,6 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
           variableId = boundVariable?.id
           collectionId = boundVariable?.collectionId
 
-          // If we have a variableId but no collectionId, try to get it from the variable
           if (variableId && !collectionId) {
             try {
               const variable = figma.variables.getVariableById(variableId)
@@ -342,6 +354,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
           styleName,
           expectedCollections,
           isMismatched: !matchResult.isMatch,
+          nodeId: node.id, // Add nodeId to each property
           ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
         }
         
@@ -405,6 +418,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         collectionId,
         expectedCollections,
         isMismatched: !matchResult.isMatch,
+        nodeId: node.id, // Add nodeId to each property
         ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
       }
       
@@ -469,6 +483,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         collectionId,
         expectedCollections,
         isMismatched: !matchResult.isMatch,
+        nodeId: node.id, // Add nodeId to each property
         ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
       }
       
@@ -534,6 +549,7 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         collectionId,
         expectedCollections,
         isMismatched: !matchResult.isMatch,
+        nodeId: node.id, // Add nodeId to each property
         ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
       };
       
@@ -541,7 +557,6 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
         const suggestedVar = findMatchingVariable(property.value, 'FLOAT');
         if (suggestedVar) {
           property.suggestedVariable = makeSerializable(suggestedVar);
-          console.log('Found suggested variable for gap:', suggestedVar);
         } else {
           // If no exact match found, look for the closest number variable
           const closestVar = findClosestNumberVariable(property.value);
@@ -551,13 +566,68 @@ function analyzeNodeProperties(node: SceneNode, exceptions: string): Array<NodeP
               name: closestVar.name,
               value: closestVar.value
             });
-            console.log('Found closest variable for gap:', closestVar);
           }
         }
       }
       
       properties.push(property);
     }
+  }
+  
+  // Check text styles for TEXT nodes
+  if (node.type === 'TEXT') {
+    const textNode = node as TextNode;
+    console.log('\nChecking text style for:', textNode.characters.substring(0, 30) + (textNode.characters.length > 30 ? '...' : ''));
+    
+    // Get the style ID if the text is using a text style
+    const textStyleId = textNode.textStyleId;
+    let collectionId = undefined;
+    let styleName = undefined;
+    
+    // Check if it has a text style
+    if (textStyleId && textStyleId !== '') {
+      try {
+        const style = figma.getStyleById(textStyleId as string);
+        if (style) {
+          collectionId = style.key;
+          styleName = style.name;
+          console.log('Found text style:', { name: styleName, key: collectionId });
+        }
+      } catch (error) {
+        console.error('Error getting text style:', error);
+      }
+    }
+    
+    // If there's no text style, it's a detached text style
+    const isDetached = !textStyleId || textStyleId === '';
+    
+    // Create a property for the text style
+    // For detached text styles, force isMismatched = true
+    const matchResult = isDetached ? 
+      { isMatch: false } : 
+      isCollectionMatch(collectionId, styleName, selectedCollection?.id, exceptions);
+    
+    console.log('Match result for text style:', { 
+      matchResult, 
+      styleName,
+      collectionId,
+      isDetached
+    });
+    
+    // Create a property for the text style
+    const property: NodeProperty = {
+      name: 'Typography',
+      value: styleName || 'Detached text style',
+      formattedValue: styleName || 'Detached text style',
+      styleName,
+      collectionId,
+      expectedCollections,
+      isMismatched: !matchResult.isMatch,
+      nodeId: node.id, // Add nodeId to each property
+      ...(matchResult.matchedByException && { matchedByException: matchResult.matchedByException })
+    };
+    
+    properties.push(property);
   }
   
   return properties
@@ -1840,6 +1910,165 @@ export default async function () {
       if (node && node.type !== 'PAGE' && node.type !== 'DOCUMENT') {
         figma.currentPage.selection = [node as SceneNode]
         figma.viewport.scrollAndZoomIntoView([node as SceneNode])
+      }
+    })
+    
+    // Handle apply recommendation
+    on<ApplyRecommendationHandler>('APPLY_RECOMMENDATION', async function (nodeId: string, property: NodeProperty, suggestedVariable: { id: string; name: string; value: any }) {
+      console.log('Received apply recommendation:', {
+        nodeId,
+        property,
+        suggestedVariable
+      })
+      
+      try {
+        // Get the node
+        const node = figma.getNodeById(nodeId)
+        if (!node) {
+          console.error('Node not found:', nodeId)
+          figma.notify('Error: Node not found', { error: true })
+          return
+        }
+        
+        // Select the node
+        figma.currentPage.selection = [node as SceneNode]
+        
+        // Try to find the variable in the document
+        let variable = figma.variables.getVariableById(suggestedVariable.id)
+        
+        // If the variable doesn't exist, it might be a library variable that needs to be imported
+        if (!variable) {
+          console.log('Variable not found in document, attempting to import:', suggestedVariable)
+          
+          // Find all library variables
+          const allCollections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
+          let importedVariable = null
+
+          // Look through all collections for matching variables
+          for (const collection of allCollections) {
+            // Get variables from this collection
+            try {
+              const libraryVariables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
+              
+              // Find the variable with matching name (since ID might not be directly comparable)
+              const matchingVar = libraryVariables.find(v => 
+                v.name === suggestedVariable.name
+              )
+              
+              if (matchingVar) {
+                console.log('Found matching library variable:', matchingVar)
+                // Import the variable
+                try {
+                  importedVariable = await figma.variables.importVariableByKeyAsync(matchingVar.key)
+                  console.log('Successfully imported variable:', importedVariable)
+                  break
+                } catch (importError) {
+                  console.error('Error importing variable:', importError)
+                }
+              }
+            } catch (error) {
+              console.error('Error getting variables from collection:', error)
+            }
+          }
+          
+          // Use the imported variable
+          if (importedVariable) {
+            variable = importedVariable
+          } else {
+            console.error('Could not import variable:', suggestedVariable)
+            figma.notify('Error: Could not import variable', { error: true })
+            return
+          }
+        }
+        
+        // Apply the variable based on property type
+        if (property.name.includes('Fill')) {
+          // For fill properties
+          if ('fills' in node && Array.isArray(node.fills)) {
+            const fillIndex = parseInt(property.name.replace('Fill ', '')) - 1
+            if (fillIndex >= 0 && fillIndex < node.fills.length) {
+              const fill = node.fills[fillIndex]
+              if (fill.type === 'SOLID') {
+                const newFill = figma.variables.setBoundVariableForPaint(
+                  fill as SolidPaint,
+                  'color',
+                  variable
+                )
+                
+                // Update the fill
+                const newFills = [...node.fills]
+                newFills[fillIndex] = newFill
+                node.fills = newFills
+                figma.notify('Applied fill recommendation')
+              }
+            }
+          }
+        } else if (property.name.includes('Stroke')) {
+          // For stroke properties
+          if ('strokes' in node && Array.isArray(node.strokes)) {
+            const strokeIndex = parseInt(property.name.replace('Stroke ', '')) - 1
+            if (strokeIndex >= 0 && strokeIndex < node.strokes.length) {
+              const stroke = node.strokes[strokeIndex]
+              if (stroke.type === 'SOLID') {
+                const newStroke = figma.variables.setBoundVariableForPaint(
+                  stroke as SolidPaint,
+                  'color',
+                  variable
+                )
+                
+                // Update the stroke
+                const newStrokes = [...node.strokes]
+                newStrokes[strokeIndex] = newStroke
+                node.strokes = newStrokes
+                figma.notify('Applied stroke recommendation')
+              }
+            }
+          }
+        } else if (property.name.includes('Corner Radius')) {
+          // For corner radius properties
+          const cornerProp = property.name.replace('Corner Radius ', '').toLowerCase()
+          if (cornerProp === 'top left' && 'topLeftRadius' in node) {
+            node.setBoundVariable('topLeftRadius', variable)
+            figma.notify('Applied radius recommendation')
+          } else if (cornerProp === 'top right' && 'topRightRadius' in node) {
+            node.setBoundVariable('topRightRadius', variable)
+            figma.notify('Applied radius recommendation')
+          } else if (cornerProp === 'bottom right' && 'bottomRightRadius' in node) {
+            node.setBoundVariable('bottomRightRadius', variable)
+            figma.notify('Applied radius recommendation')
+          } else if (cornerProp === 'bottom left' && 'bottomLeftRadius' in node) {
+            node.setBoundVariable('bottomLeftRadius', variable)
+            figma.notify('Applied radius recommendation')
+          }
+        } else if (property.name.includes('Padding')) {
+          // For padding properties
+          const paddingProp = property.name.replace('Padding ', '').toLowerCase()
+          if (paddingProp === 'left' && 'paddingLeft' in node) {
+            node.setBoundVariable('paddingLeft', variable)
+            figma.notify('Applied padding recommendation')
+          } else if (paddingProp === 'right' && 'paddingRight' in node) {
+            node.setBoundVariable('paddingRight', variable)
+            figma.notify('Applied padding recommendation')
+          } else if (paddingProp === 'top' && 'paddingTop' in node) {
+            node.setBoundVariable('paddingTop', variable)
+            figma.notify('Applied padding recommendation')
+          } else if (paddingProp === 'bottom' && 'paddingBottom' in node) {
+            node.setBoundVariable('paddingBottom', variable)
+            figma.notify('Applied padding recommendation')
+          }
+        } else if (property.name === 'Gap' && node.type === 'FRAME' && 'itemSpacing' in node) {
+          // For gap properties
+          node.setBoundVariable('itemSpacing', variable)
+          figma.notify('Applied gap recommendation')
+        } else if (property.name === 'Typography' && node.type === 'TEXT') {
+          // For typography properties - this would require more complex handling for text styles
+          figma.notify('Typography recommendations not yet supported')
+        } else {
+          figma.notify('Unsupported property type', { error: true })
+        }
+      } catch (error) {
+        console.error('Error applying recommendation:', error)
+        figma.notify('Error applying recommendation', { error: true })
       }
     })
     
