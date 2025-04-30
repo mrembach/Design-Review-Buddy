@@ -200,13 +200,3 @@ export interface ToggleExcludeLockedLayersHandler extends EventHandler {
   name: 'TOGGLE_EXCLUDE_LOCKED_LAYERS'
   handler: (exclude: boolean) => void
 }
-
-export interface ToggleHideAllResultsHandler extends EventHandler {
-  name: 'TOGGLE_HIDE_ALL_RESULTS'
-  handler: (hide: boolean) => void
-}
-
-export interface ToggleShowOnlyMismatchesHandler extends EventHandler {
-  name: 'TOGGLE_SHOW_ONLY_MISMATCHES'
-  handler: (showOnly: boolean) => void
-}
