@@ -479,6 +479,9 @@ function Plugin() {
   const [designReview, setDesignReview] = useState<DesignReviewResult | null>(null)
   const [isProcessingReview, setIsProcessingReview] = useState<boolean>(false)
 
+  // New state variable for Content tab
+  const [isContentSettingsModalOpen, setIsContentSettingsModalOpen] = useState<boolean>(false)
+
   // Initialize
   useEffect(function () {
     return on<InitializeHandler>(
@@ -658,6 +661,15 @@ function Plugin() {
 
   const handleCloseReviewerSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
     setIsReviewerSettingsModalOpen(false)
+  }, [])
+
+  // Add Content settings modal handlers after the Reviewer settings handlers
+  const handleOpenContentSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsContentSettingsModalOpen(true)
+  }, [])
+
+  const handleCloseContentSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
+    setIsContentSettingsModalOpen(false)
   }, [])
 
   // Handle Run Reviewer click
@@ -1231,6 +1243,23 @@ function Plugin() {
     </div>
   )
 
+  // Add Content tab to the tabOptions array
+  const ContentTab = (
+    <div style={contentStyle}>
+      <Container space="medium">
+        <VerticalSpace space="large" />
+        <Text>Content</Text>
+        <VerticalSpace space="large" />
+        
+        {!hasSingleFrameSelected ? (
+          <Text>Select a single frame to analyze content</Text>
+        ) : (
+          <Text>Click "Run" to analyze the selected frame's content</Text>
+        )}
+      </Container>
+    </div>
+  )
+
   // Define tabs options
   const tabOptions = [
     {
@@ -1240,6 +1269,10 @@ function Plugin() {
     {
       children: ReviewerTab,
       value: 'Reviewer'
+    },
+    {
+      children: ContentTab,
+      value: 'Content'
     }
   ]
 
@@ -1351,8 +1384,28 @@ function Plugin() {
         </div>
       </Modal>
       
-      {/* Fixed footer with CTA button - hide when modal is open */}
-      {!isAnyModalOpen && !isSettingsModalOpen && !isReviewerSettingsModalOpen && (
+      {/* Content settings modal after the Reviewer settings modal */}
+      <Modal 
+        onCloseButtonClick={handleCloseContentSettingsModal} 
+        open={isContentSettingsModalOpen} 
+        position="bottom" 
+        title="Content Settings"
+        style={{ height: '88vh' }}
+      >
+        <div style={{ padding: '16px' }}>
+          <Container space="medium">
+            <VerticalSpace space="large" />
+            <Text>Content Analysis Settings</Text>
+            <VerticalSpace space="large" />
+            <Text style="small">
+              Content analysis settings will be available in a future update.
+            </Text>
+          </Container>
+        </div>
+      </Modal>
+      
+      {/* Update the fixed footer section to include the Content tab */}
+      {!isAnyModalOpen && !isSettingsModalOpen && !isReviewerSettingsModalOpen && !isContentSettingsModalOpen && (
         <div style={footerStyle}>
           {currentTab === 'Linter' && (
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1393,6 +1446,28 @@ function Plugin() {
                 onClick={handleRunReviewerClick}
               >
                 {isReviewing ? 'Exporting...' : 'Run Reviewer'}
+              </Button>
+            </div>
+          )}
+          {currentTab === 'Content' && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <IconButton 
+                onClick={handleOpenContentSettingsModal}
+                style={{ 
+                  border: '1px solid rgba(0, 0, 0, 0.1)', 
+                  borderRadius: '6px', 
+                  padding: '8px',
+                  color: '#666666' // Darker gray color for the icon
+                }}
+              >
+                <IconAdjust16 />
+              </IconButton>
+              <Button 
+                disabled={!hasSingleFrameSelected}
+                // For now this doesn't do anything, just a placeholder for future functionality
+                onClick={() => console.log('Content analysis would start here')}
+              >
+                Run
               </Button>
             </div>
           )}
