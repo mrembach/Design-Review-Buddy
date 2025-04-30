@@ -655,14 +655,22 @@ function Plugin() {
   // Handle API key save
   const handleSaveApiKey = useCallback(() => {
     try {
-      // Here you would typically store the API key or send it to the main context
-      console.log('Saving API key:', apiKey)
-      // Later we'll add persistence, for now just mark it as saved for UI feedback
+      // Don't log the API key to console for security
+      
+      // Keep API key in memory only
+      // No persistence to storage
+      
+      // Mark as saved for UI feedback
       setIsApiKeySaved(true)
     } catch (error) {
       console.error('Error saving API key:', error);
     }
   }, [apiKey])
+
+  // Load the API key on initial mount
+  useEffect(() => {
+    // No loading from storage
+  }, [])
 
   // Handle opening the API key link
   const handleOpenApiKeyLink = useCallback(() => {
@@ -1161,7 +1169,7 @@ function Plugin() {
               </Button>
               {isApiKeySaved && (
                 <Text style="small">
-                  <span style={successTextStyle}>✓ API key saved</span>
+                  <span style={successTextStyle}>✓ API key saved for this session</span>
                 </Text>
               )}
             </div>
@@ -1179,6 +1187,7 @@ function Plugin() {
             <Text style="small">
               You need a Shopify OpenAI Proxy API key to use the design reviewer features. 
               The key will be used to analyze design screenshots and provide feedback.
+              Your API key is kept in memory only and transmitted securely via HTTPS.
             </Text>
           </Container>
         </div>
