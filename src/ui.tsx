@@ -625,27 +625,32 @@ function Plugin() {
             return null;
           }
 
-          // Group radius and padding properties
-          const groupedProperties: {[key: string]: Array<NodeProperty>} = {};
+          // Improved grouping for radius and padding properties
+          const radiusPropertiesByValue = new Map<string, Array<NodeProperty>>();
+          const paddingPropertiesByValue = new Map<string, Array<NodeProperty>>();
+          const gapProperties: Array<NodeProperty> = [];
           const standardProperties: Array<NodeProperty> = [];
           
-          // Sort properties into groups
+          // Sort properties into groups based on their values
           mismatchedProperties.forEach(prop => {
+            // Extract the numeric value for grouping
+            const valueMatch = prop.formattedValue.match(/\d+(\.\d+)?/);
+            const numericValue = valueMatch ? valueMatch[0] : prop.formattedValue;
+            
             if (prop.name.includes('Corner Radius')) {
-              if (!groupedProperties['Radius']) {
-                groupedProperties['Radius'] = [];
+              // Group radius properties by value
+              if (!radiusPropertiesByValue.has(numericValue)) {
+                radiusPropertiesByValue.set(numericValue, []);
               }
-              groupedProperties['Radius'].push(prop);
+              radiusPropertiesByValue.get(numericValue)?.push(prop);
             } else if (prop.name.includes('Padding')) {
-              if (!groupedProperties['Padding']) {
-                groupedProperties['Padding'] = [];
+              // Group padding properties by value
+              if (!paddingPropertiesByValue.has(numericValue)) {
+                paddingPropertiesByValue.set(numericValue, []);
               }
-              groupedProperties['Padding'].push(prop);
+              paddingPropertiesByValue.get(numericValue)?.push(prop);
             } else if (prop.name === 'Gap') {
-              if (!groupedProperties['Gap']) {
-                groupedProperties['Gap'] = [];
-              }
-              groupedProperties['Gap'].push(prop);
+              gapProperties.push(prop);
             } else {
               standardProperties.push(prop);
             }
@@ -660,8 +665,89 @@ function Plugin() {
             originalProps: Array<NodeProperty>
           }> = [];
           
-          // Add grouped properties
-          Object.entries(groupedProperties).forEach(([groupName, props]) => {
+          // Add radius properties grouped by value
+          radiusPropertiesByValue.forEach((props, value) => {
+            // Get the corner directions
+            const corners = props.map(p => p.name.replace('Corner Radius ', ''));
+            
+            // Determine if properties are detached, wrong lib, or mixed
+            const hasDetached = props.some(p => !p.variableId && !p.styleName);
+            const hasWrongLib = props.some(p => p.collectionId && p.isMismatched);
+            
+            let statusText = "";
+            if (hasDetached && hasWrongLib) {
+              statusText = "Detached & Wrong lib";
+            } else if (hasDetached) {
+              statusText = "Detached";
+            } else if (hasWrongLib) {
+              statusText = "Wrong lib";
+            }
+            
+            // Check if any property has a recommendation
+            const hasRecommendation = props.some(p => !!p.suggestedVariable);
+            
+            // Create title based on how many corners have this value
+            let title = "";
+            if (corners.length === 4) {
+              title = "All Corners Radius";
+            } else if (corners.length === 1) {
+              title = `${corners[0]} Radius`;
+            } else {
+              title = `${corners.length} Corners Radius`;
+            }
+            
+            propertiesToRender.push({
+              key: `${result.nodeId}-radius-${value}`,
+              title,
+              description: `${statusText} (${value})`,
+              hasRecommendation,
+              originalProps: props
+            });
+          });
+          
+          // Add padding properties grouped by value
+          paddingPropertiesByValue.forEach((props, value) => {
+            // Get the padding directions
+            const directions = props.map(p => p.name.replace('Padding ', ''));
+            
+            // Determine if properties are detached, wrong lib, or mixed
+            const hasDetached = props.some(p => !p.variableId && !p.styleName);
+            const hasWrongLib = props.some(p => p.collectionId && p.isMismatched);
+            
+            let statusText = "";
+            if (hasDetached && hasWrongLib) {
+              statusText = "Detached & Wrong lib";
+            } else if (hasDetached) {
+              statusText = "Detached";
+            } else if (hasWrongLib) {
+              statusText = "Wrong lib";
+            }
+            
+            // Check if any property has a recommendation
+            const hasRecommendation = props.some(p => !!p.suggestedVariable);
+            
+            // Create title based on how many directions have this value
+            let title = "";
+            if (directions.length === 4) {
+              title = "All Sides Padding";
+            } else if (directions.length === 1) {
+              title = `${directions[0]} Padding`;
+            } else {
+              title = `${directions.length} Sides Padding`;
+            }
+            
+            propertiesToRender.push({
+              key: `${result.nodeId}-padding-${value}`,
+              title,
+              description: `${statusText} (${value})`,
+              hasRecommendation,
+              originalProps: props
+            });
+          });
+          
+          // Add gap properties
+          if (gapProperties.length > 0) {
+            const props = gapProperties;
             // Extract just the values to display, without direction labels
             const values = props.map(p => {
               // Get just the numeric value
@@ -686,13 +772,13 @@ function Plugin() {
             const hasRecommendation = props.some(p => !!p.suggestedVariable);
             
             propertiesToRender.push({
-              key: `${result.nodeId}-${groupName}`,
-              title: groupName,
+              key: `${result.nodeId}-gap`,
+              title: "Gap",
               description: `${statusText} (${values.join(', ')})`,
               hasRecommendation,
               originalProps: props
             });
-          });
+          }
           
           // Add standard properties
           standardProperties.forEach((prop, propIndex) => {

@@ -18,7 +18,9 @@ import {
   LibraryVariable,
   VariableResolvedDataType,
   SelectLayerHandler,
-  ApplyRecommendationHandler
+  ApplyRecommendationHandler,
+  VariableBindableNode,
+  VariableBindableNodeField
 } from './types'
 
 // Store collections data in the main context
@@ -1930,6 +1932,10 @@ export default async function () {
           return
         }
         
+        // Cast to a more specific node type that supports variable binding
+        // This is safe because we check property availability before using
+        const variableNode = node as VariableBindableNode
+        
         // Select the node
         figma.currentPage.selection = [node as SceneNode]
         
@@ -2026,39 +2032,122 @@ export default async function () {
           }
         } else if (property.name.includes('Corner Radius')) {
           // For corner radius properties
+          
+          // Get the value of the current property
+          const currentValue = property.value;
+          
+          // Apply to the specific corner from the property
           const cornerProp = property.name.replace('Corner Radius ', '').toLowerCase()
+          let appliedCount = 0;
+          
+          // Track which corners we've applied to
+          const appliedCorners = new Set<string>();
+          
+          // Apply to the specific corner from the property
           if (cornerProp === 'top left' && 'topLeftRadius' in node) {
-            node.setBoundVariable('topLeftRadius', variable)
-            figma.notify('Applied radius recommendation')
+            variableNode.setBoundVariable('topLeftRadius', variable)
+            appliedCorners.add('topLeftRadius');
+            appliedCount++;
           } else if (cornerProp === 'top right' && 'topRightRadius' in node) {
-            node.setBoundVariable('topRightRadius', variable)
-            figma.notify('Applied radius recommendation')
+            variableNode.setBoundVariable('topRightRadius', variable)
+            appliedCorners.add('topRightRadius');
+            appliedCount++;
           } else if (cornerProp === 'bottom right' && 'bottomRightRadius' in node) {
-            node.setBoundVariable('bottomRightRadius', variable)
-            figma.notify('Applied radius recommendation')
+            variableNode.setBoundVariable('bottomRightRadius', variable)
+            appliedCorners.add('bottomRightRadius');
+            appliedCount++;
           } else if (cornerProp === 'bottom left' && 'bottomLeftRadius' in node) {
-            node.setBoundVariable('bottomLeftRadius', variable)
-            figma.notify('Applied radius recommendation')
+            variableNode.setBoundVariable('bottomLeftRadius', variable)
+            appliedCorners.add('bottomLeftRadius');
+            appliedCount++;
+          }
+          
+          // Check other corners for the same value and apply the variable to them too
+          if ('cornerRadius' in node) {
+            // Check all corners
+            const cornerProps = [
+              { name: 'topLeftRadius', displayName: 'top left' },
+              { name: 'topRightRadius', displayName: 'top right' },
+              { name: 'bottomRightRadius', displayName: 'bottom right' },
+              { name: 'bottomLeftRadius', displayName: 'bottom left' }
+            ];
+            
+            for (const corner of cornerProps) {
+              // Skip corners we've already processed
+              if (appliedCorners.has(corner.name)) continue;
+              
+              // Check if this corner has the same value and exists on the node
+              if (corner.name in node && (node as any)[corner.name] === currentValue) {
+                variableNode.setBoundVariable(corner.name as VariableBindableNodeField, variable);
+                appliedCount++;
+              }
+            }
+          }
+          
+          if (appliedCount > 1) {
+            figma.notify(`Applied radius recommendation to ${appliedCount} corners`);
+          } else {
+            figma.notify('Applied radius recommendation');
           }
         } else if (property.name.includes('Padding')) {
           // For padding properties
+          
+          // Get the value of the current property
+          const currentValue = property.value;
+          
+          // Apply to the specific padding from the property
           const paddingProp = property.name.replace('Padding ', '').toLowerCase()
+          let appliedCount = 0;
+          
+          // Track which padding directions we've applied to
+          const appliedPaddings = new Set<string>();
+          
+          // Apply to the specific padding from the property
           if (paddingProp === 'left' && 'paddingLeft' in node) {
-            node.setBoundVariable('paddingLeft', variable)
-            figma.notify('Applied padding recommendation')
+            variableNode.setBoundVariable('paddingLeft', variable)
+            appliedPaddings.add('paddingLeft');
+            appliedCount++;
           } else if (paddingProp === 'right' && 'paddingRight' in node) {
-            node.setBoundVariable('paddingRight', variable)
-            figma.notify('Applied padding recommendation')
+            variableNode.setBoundVariable('paddingRight', variable)
+            appliedPaddings.add('paddingRight');
+            appliedCount++;
           } else if (paddingProp === 'top' && 'paddingTop' in node) {
-            node.setBoundVariable('paddingTop', variable)
-            figma.notify('Applied padding recommendation')
+            variableNode.setBoundVariable('paddingTop', variable)
+            appliedPaddings.add('paddingTop');
+            appliedCount++;
           } else if (paddingProp === 'bottom' && 'paddingBottom' in node) {
-            node.setBoundVariable('paddingBottom', variable)
-            figma.notify('Applied padding recommendation')
+            variableNode.setBoundVariable('paddingBottom', variable)
+            appliedPaddings.add('paddingBottom');
+            appliedCount++;
+          }
+          
+          // Check other padding directions for the same value and apply the variable to them too
+          const paddingProps = [
+            { name: 'paddingLeft', displayName: 'left' },
+            { name: 'paddingRight', displayName: 'right' },
+            { name: 'paddingTop', displayName: 'top' },
+            { name: 'paddingBottom', displayName: 'bottom' }
+          ];
+          
+          for (const padding of paddingProps) {
+            // Skip padding directions we've already processed
+            if (appliedPaddings.has(padding.name)) continue;
+            
+            // Check if this padding has the same value and exists on the node
+            if (padding.name in node && (node as any)[padding.name] === currentValue) {
+              variableNode.setBoundVariable(padding.name as VariableBindableNodeField, variable);
+              appliedCount++;
+            }
+          }
+          
+          if (appliedCount > 1) {
+            figma.notify(`Applied padding recommendation to ${appliedCount} sides`);
+          } else {
+            figma.notify('Applied padding recommendation');
           }
         } else if (property.name === 'Gap' && node.type === 'FRAME' && 'itemSpacing' in node) {
           // For gap properties
-          node.setBoundVariable('itemSpacing', variable)
+          variableNode.setBoundVariable('itemSpacing', variable)
           figma.notify('Applied gap recommendation')
         } else if (property.name === 'Typography' && node.type === 'TEXT') {
           // For typography properties - this would require more complex handling for text styles

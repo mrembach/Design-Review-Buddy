@@ -22,6 +22,28 @@ export interface SelectedCollectionData extends VariableCollectionData {
   variables?: Array<VariableData>
 }
 
+// Type definition for nodes that can have variables bound to them
+export interface VariableBindableNode {
+  id: string;
+  type: string;
+  name: string;
+  setBoundVariable(field: VariableBindableNodeField, variable: Variable | null): void;
+  // Add other common properties as needed
+}
+
+// Type definition for fields that can have variables bound to them
+export type VariableBindableNodeField = 
+  | 'bottomLeftRadius'
+  | 'bottomRightRadius'
+  | 'topLeftRadius'
+  | 'topRightRadius'
+  | 'paddingLeft'
+  | 'paddingRight'
+  | 'paddingTop'
+  | 'paddingBottom'
+  | 'itemSpacing'
+  | 'counterAxisSpacing';
+
 export interface NodeProperty {
   name: string
   value: any
