@@ -242,13 +242,18 @@ function PropertyRow({
         
         // Mark as applied
         setIsApplied(true);
+        
+        // Call the recommendation click handler to notify parent component
+        if (onRecommendationClick) {
+          onRecommendationClick();
+        }
       }
     }
     
     // Close the modal after applying
     setIsModalOpen(false);
     if (onModalClose) onModalClose();
-  }, [originalProps, onClick, onModalClose]);
+  }, [originalProps, onClick, onModalClose, onRecommendationClick]);
   
   // Outer container style (no hover/click behavior)
   const containerStyle = {
@@ -413,6 +418,7 @@ function Plugin() {
   const [currentTab, setCurrentTab] = useState<string>('lint')
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({})
   const [isAnyModalOpen, setIsAnyModalOpen] = useState<boolean>(false)
+  const [appliedRecommendationsCount, setAppliedRecommendationsCount] = useState<number>(0)
 
   // Initialize
   useEffect(function () {
@@ -478,6 +484,8 @@ function Plugin() {
         setAnalysisResults(results);
         // Reset checked items when we get new results
         setCheckedItems({});
+        // Reset applied recommendations count
+        setAppliedRecommendationsCount(0);
       }
     )
   }, [])
@@ -568,6 +576,11 @@ function Plugin() {
   // Handler for when any modal closes
   const handleModalClose = useCallback(() => {
     setIsAnyModalOpen(false);
+  }, []);
+
+  // Handler for when a recommendation is applied
+  const handleRecommendationApplied = useCallback(() => {
+    setAppliedRecommendationsCount(prev => prev + 1);
   }, []);
 
   // Helper function to get the correct icon based on node type
@@ -868,6 +881,7 @@ function Plugin() {
                         // If multiple properties, just use the first one's recommendation for now
                         const prop = propInfo.originalProps[0];
                         console.log('Recommendation clicked', prop.suggestedVariable);
+                        handleRecommendationApplied();
                       }}
                       onClick={() => handleSelectLayer(result.nodeId)}
                       originalProps={propInfo.originalProps}
@@ -896,7 +910,7 @@ function Plugin() {
               <Text style="bold">
                 {analysisResults.reduce((count, result) => 
                   count + result.properties.filter(prop => prop.isMismatched).length, 0
-                )} Issues found
+                ) - appliedRecommendationsCount} Issues found
               </Text>
             </div>
             <VerticalSpace space="medium" />
