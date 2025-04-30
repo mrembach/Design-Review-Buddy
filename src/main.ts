@@ -25,7 +25,11 @@ import {
   RunReviewerHandler,
   FrameImageData,
   FrameImageExportedHandler,
-  OpenExternalUrlHandler
+  OpenExternalUrlHandler,
+  // Design review types
+  DesignReviewHandler,
+  DesignReviewResult,
+  DesignReviewResultHandler
 } from './types'
 
 // Store collections data in the main context
@@ -2030,6 +2034,128 @@ export default async function () {
     on<OpenExternalUrlHandler>('OPEN_EXTERNAL_URL', (url) => {
       console.log('Opening external URL:', url)
       figma.openExternal(url)
+    })
+    
+    // Handle process design review
+    on<DesignReviewHandler>('PROCESS_DESIGN_REVIEW', async (frameImageData: FrameImageData, apiKey: string) => {
+      try {
+        console.log('Processing design review for frame:', frameImageData.frameName)
+        
+        if (!apiKey) {
+          console.error('No API key provided for design review')
+          const errorResult: DesignReviewResult = {
+            feedback: "Please enter a valid Shopify OpenAI Proxy API key in the settings.",
+            categories: {
+              contrast: 0,
+              hierarchy: 0,
+              alignment: 0,
+              proximity: 0
+            },
+            errors: "Missing API key"
+          }
+          emit<DesignReviewResultHandler>('DESIGN_REVIEW_RESULT', errorResult)
+          return
+        }
+        
+        // Extract base64 image from data URL by removing the prefix
+        const base64Image = frameImageData.imageUrl.replace(/^data:image\/png;base64,/, '')
+        
+        // Create the request payload for OpenAI API
+        const payload = {
+          model: "gpt-4-vision-preview",
+          messages: [
+            {
+              role: "system",
+              content: `You are a helpful UI/UX design reviewer. Analyze the provided UI design screenshot and give feedback based on visual design principles. Rate the design on a scale of 1-10 for: contrast, visual hierarchy, alignment, and proximity. Provide concise, actionable feedback in 3-5 sentences.`
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: frameImageData.imageUrl
+                  }
+                },
+                {
+                  type: "text",
+                  text: "Please review this design and provide a brief critique focusing on visual design principles."
+                }
+              ]
+            }
+          ],
+          max_tokens: 300
+        }
+        
+        try {
+          // Call the Shopify OpenAI Proxy
+          const response = await fetch("https://proxy.shopify.ai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+          })
+          
+          if (!response.ok) {
+            throw new Error(`API request failed with status ${response.status}`)
+          }
+          
+          const responseData = await response.json()
+          
+          // Parse the text content to extract ratings and feedback
+          const aiResponse = responseData.choices[0].message.content
+          console.log('AI response received:', aiResponse)
+          
+          // Extract ratings using regex (assuming the AI follows instructions to rate 1-10)
+          const contrastMatch = aiResponse.match(/contrast:?\s*(\d+)/i)
+          const hierarchyMatch = aiResponse.match(/hierarchy:?\s*(\d+)/i) || aiResponse.match(/visual hierarchy:?\s*(\d+)/i)
+          const alignmentMatch = aiResponse.match(/alignment:?\s*(\d+)/i)
+          const proximityMatch = aiResponse.match(/proximity:?\s*(\d+)/i)
+          
+          // Default to 5 if we can't extract a score
+          const reviewResult: DesignReviewResult = {
+            feedback: aiResponse,
+            categories: {
+              contrast: contrastMatch ? parseInt(contrastMatch[1]) : 5,
+              hierarchy: hierarchyMatch ? parseInt(hierarchyMatch[1]) : 5,
+              alignment: alignmentMatch ? parseInt(alignmentMatch[1]) : 5,
+              proximity: proximityMatch ? parseInt(proximityMatch[1]) : 5
+            }
+          }
+          
+          emit<DesignReviewResultHandler>('DESIGN_REVIEW_RESULT', reviewResult)
+          
+        } catch (error) {
+          console.error('Error calling OpenAI API:', error)
+          const errorResult: DesignReviewResult = {
+            feedback: "There was an error processing the design review. Please check your API key and try again.",
+            categories: {
+              contrast: 0,
+              hierarchy: 0,
+              alignment: 0,
+              proximity: 0
+            },
+            errors: error instanceof Error ? error.message : String(error)
+          }
+          emit<DesignReviewResultHandler>('DESIGN_REVIEW_RESULT', errorResult)
+        }
+        
+      } catch (error) {
+        console.error('Error in design review handler:', error)
+        const errorResult: DesignReviewResult = {
+          feedback: "An unexpected error occurred while processing the design.",
+          categories: {
+            contrast: 0,
+            hierarchy: 0,
+            alignment: 0,
+            proximity: 0
+          },
+          errors: error instanceof Error ? error.message : String(error)
+        }
+        emit<DesignReviewResultHandler>('DESIGN_REVIEW_RESULT', errorResult)
+      }
     })
     
     // Handle run reviewer

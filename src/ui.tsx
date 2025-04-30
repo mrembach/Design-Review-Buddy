@@ -46,7 +46,11 @@ import {
   ApplyRecommendationHandler,
   RunReviewerHandler,
   FrameImageData,
-  FrameImageExportedHandler
+  FrameImageExportedHandler,
+  OpenExternalUrlHandler,
+  DesignReviewHandler,
+  DesignReviewResult,
+  DesignReviewResultHandler
 } from './types'
 
 // CSS for fixed footer
@@ -167,6 +171,38 @@ const iconSizeStyle = {
 const modalStyle = {
   zIndex: 10 // Higher than the footer's z-index (2)
 }
+
+// CSS for review results
+const reviewResultsContainer = {
+  border: '1px solid #E5E5E5',
+  borderRadius: '8px',
+  marginBottom: '16px',
+  marginTop: '16px',
+  overflow: 'hidden',
+  padding: '16px'
+}
+
+const reviewCategory = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: '8px'
+}
+
+const scoreBar = {
+  flex: 1,
+  height: '8px',
+  backgroundColor: '#F0F0F0',
+  borderRadius: '4px',
+  margin: '0 10px'
+}
+
+const scoreIndicator = (score: number) => ({
+  width: `${score * 10}%`,
+  height: '100%',
+  backgroundColor: score >= 7 ? '#2E7D32' : score >= 4 ? '#F9A826' : '#E62E2E',
+  borderRadius: '4px'
+})
 
 // Custom PropertyRow component (no left icon, with optional right icon)
 interface PropertyRowProps {
@@ -440,6 +476,8 @@ function Plugin() {
   // Reviewer-specific state
   const [isReviewing, setIsReviewing] = useState<boolean>(false)
   const [frameImage, setFrameImage] = useState<FrameImageData | null>(null)
+  const [designReview, setDesignReview] = useState<DesignReviewResult | null>(null)
+  const [isProcessingReview, setIsProcessingReview] = useState<boolean>(false)
 
   // Initialize
   useEffect(function () {
@@ -626,6 +664,7 @@ function Plugin() {
   const handleRunReviewerClick = useCallback(() => {
     setIsReviewing(true)
     setFrameImage(null)
+    setDesignReview(null)
     emit<RunReviewerHandler>('RUN_REVIEWER')
   }, [])
 
@@ -637,6 +676,34 @@ function Plugin() {
         console.log('Received frame image:', frameImageData.frameName)
         setFrameImage(frameImageData)
         setIsReviewing(false)
+        
+        // If we have an API key saved, automatically start processing the review
+        if (isApiKeySaved && apiKey) {
+          handleProcessReview(frameImageData)
+        }
+      }
+    )
+  }, [isApiKeySaved, apiKey])
+  
+  // Handle processing design review with API
+  const handleProcessReview = useCallback((imageData: FrameImageData) => {
+    if (!apiKey) {
+      console.error('No API key available for design review')
+      return
+    }
+    
+    setIsProcessingReview(true)
+    emit<DesignReviewHandler>('PROCESS_DESIGN_REVIEW', imageData, apiKey)
+  }, [apiKey])
+  
+  // Listen for design review results
+  useEffect(() => {
+    return on<DesignReviewResultHandler>(
+      'DESIGN_REVIEW_RESULT',
+      function (reviewResult: DesignReviewResult) {
+        console.log('Received design review result:', reviewResult)
+        setDesignReview(reviewResult)
+        setIsProcessingReview(false)
       }
     )
   }, [])
@@ -1041,7 +1108,7 @@ function Plugin() {
             <VerticalSpace space="small" />
             <div style={{ 
               maxWidth: '100%', 
-              maxHeight: '400px', 
+              maxHeight: '300px', 
               overflow: 'auto',
               border: '1px solid #E5E5E5',
               borderRadius: '4px',
@@ -1057,8 +1124,98 @@ function Plugin() {
                 }} 
               />
             </div>
-            <VerticalSpace space="medium" />
+            <VerticalSpace space="small" />
             <Text>Frame dimensions: {frameImage.width}px × {frameImage.height}px</Text>
+            
+            {isProcessingReview ? (
+              <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <LoadingIndicator />
+                <VerticalSpace space="small" />
+                <Text>Analyzing design...</Text>
+              </div>
+            ) : !isApiKeySaved ? (
+              <div style={{ marginTop: '16px' }}>
+                <Text>Please add and save your API key in settings to analyze this design</Text>
+                <VerticalSpace space="small" />
+                <Button
+                  onClick={handleOpenReviewerSettingsModal}
+                  secondary
+                >
+                  Open Settings
+                </Button>
+              </div>
+            ) : designReview ? (
+              <div style={reviewResultsContainer}>
+                <Text style="bold">Design Feedback</Text>
+                <VerticalSpace space="small" />
+                <Text>{designReview.feedback}</Text>
+                
+                {!designReview.errors && (
+                  <Fragment>
+                    <VerticalSpace space="medium" />
+                    <Text style="bold">Design Scores</Text>
+                    <VerticalSpace space="small" />
+                    
+                    <div style={reviewCategory}>
+                      <Text style="bold">Contrast</Text>
+                      <div style={scoreBar}>
+                        <div style={scoreIndicator(designReview.categories.contrast)}></div>
+                      </div>
+                      <Text>{designReview.categories.contrast}/10</Text>
+                    </div>
+                    
+                    <div style={reviewCategory}>
+                      <Text style="bold">Hierarchy</Text>
+                      <div style={scoreBar}>
+                        <div style={scoreIndicator(designReview.categories.hierarchy)}></div>
+                      </div>
+                      <Text>{designReview.categories.hierarchy}/10</Text>
+                    </div>
+                    
+                    <div style={reviewCategory}>
+                      <Text style="bold">Alignment</Text>
+                      <div style={scoreBar}>
+                        <div style={scoreIndicator(designReview.categories.alignment)}></div>
+                      </div>
+                      <Text>{designReview.categories.alignment}/10</Text>
+                    </div>
+                    
+                    <div style={reviewCategory}>
+                      <Text style="bold">Proximity</Text>
+                      <div style={scoreBar}>
+                        <div style={scoreIndicator(designReview.categories.proximity)}></div>
+                      </div>
+                      <Text>{designReview.categories.proximity}/10</Text>
+                    </div>
+                  </Fragment>
+                )}
+                
+                {designReview.errors && (
+                  <Fragment>
+                    <VerticalSpace space="medium" />
+                    <Text style="bold"><span style={redTextStyle}>Error</span></Text>
+                    <VerticalSpace space="small" />
+                    <Text><span style={faintRedTextStyle}>{designReview.errors}</span></Text>
+                  </Fragment>
+                )}
+                
+                <VerticalSpace space="medium" />
+                <Button
+                  onClick={() => handleProcessReview(frameImage)}
+                  secondary
+                >
+                  Analyze Again
+                </Button>
+              </div>
+            ) : isApiKeySaved && (
+              <div style={{ marginTop: '16px' }}>
+                <Button
+                  onClick={() => handleProcessReview(frameImage)}
+                >
+                  Analyze Design
+                </Button>
+              </div>
+            )}
           </div>
         ) : isReviewing ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>

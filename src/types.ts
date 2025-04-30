@@ -224,3 +224,25 @@ export interface OpenExternalUrlHandler extends EventHandler {
   name: 'OPEN_EXTERNAL_URL'
   handler: (url: string) => void
 }
+
+// Design review types
+export interface DesignReviewResult {
+  feedback: string;
+  categories: {
+    contrast: number;
+    hierarchy: number;
+    alignment: number;
+    proximity: number;
+  };
+  errors?: string;
+}
+
+export interface DesignReviewHandler extends EventHandler {
+  name: 'PROCESS_DESIGN_REVIEW'
+  handler: (frameImageData: FrameImageData, apiKey: string) => void
+}
+
+export interface DesignReviewResultHandler extends EventHandler {
+  name: 'DESIGN_REVIEW_RESULT'
+  handler: (reviewResult: DesignReviewResult) => void
+}
