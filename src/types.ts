@@ -219,3 +219,8 @@ export interface FrameImageExportedHandler extends EventHandler {
   name: 'FRAME_IMAGE_EXPORTED'
   handler: (frameImageData: FrameImageData) => void
 }
+
+export interface OpenExternalUrlHandler extends EventHandler {
+  name: 'OPEN_EXTERNAL_URL'
+  handler: (url: string) => void
+}

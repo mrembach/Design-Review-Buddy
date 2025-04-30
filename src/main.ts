@@ -24,7 +24,8 @@ import {
   // New Reviewer types
   RunReviewerHandler,
   FrameImageData,
-  FrameImageExportedHandler
+  FrameImageExportedHandler,
+  OpenExternalUrlHandler
 } from './types'
 
 // Store collections data in the main context
@@ -1921,287 +1922,157 @@ export default async function () {
     
     // Handle apply recommendation
     on<ApplyRecommendationHandler>('APPLY_RECOMMENDATION', async function (nodeId: string, property: NodeProperty, suggestedVariable: { id: string; name: string; value: any }) {
-      console.log('Received apply recommendation:', {
-        nodeId,
-        property,
-        suggestedVariable
-      })
-      
       try {
-        // Get the node
+        console.log('Applying recommendation:', { nodeId, property, suggestedVariable })
+        
+        // Find the node to apply the recommendation to
         const node = figma.getNodeById(nodeId)
         if (!node) {
           console.error('Node not found:', nodeId)
-          figma.notify('Error: Node not found', { error: true })
           return
         }
         
-        // Cast to a more specific node type that supports variable binding
-        // This is safe because we check property availability before using
-        const variableNode = node as VariableBindableNode
-        
-        // Select the node
-        figma.currentPage.selection = [node as SceneNode]
-        
-        // Try to find the variable in the document
-        let variable = figma.variables.getVariableById(suggestedVariable.id)
-        
-        // If the variable doesn't exist, it might be a library variable that needs to be imported
-        if (!variable) {
-          console.log('Variable not found in document, attempting to import:', suggestedVariable)
-          
-          // Find all library variables
-          const allCollections = await figma.teamLibrary.getAvailableLibraryVariableCollectionsAsync()
-          let importedVariable = null
-
-          // Look through all collections for matching variables
-          for (const collection of allCollections) {
-            // Get variables from this collection
-            try {
-              const libraryVariables = await figma.teamLibrary.getVariablesInLibraryCollectionAsync(collection.key)
-              
-              // Find the variable with matching name (since ID might not be directly comparable)
-              const matchingVar = libraryVariables.find(v => 
-                v.name === suggestedVariable.name
-              )
-              
-              if (matchingVar) {
-                console.log('Found matching library variable:', matchingVar)
-                // Import the variable
-                try {
-                  importedVariable = await figma.variables.importVariableByKeyAsync(matchingVar.key)
-                  console.log('Successfully imported variable:', importedVariable)
-                  break
-                } catch (importError) {
-                  console.error('Error importing variable:', importError)
-                }
-              }
-            } catch (error) {
-              console.error('Error getting variables from collection:', error)
-            }
-          }
-          
-          // Use the imported variable
-          if (importedVariable) {
-            variable = importedVariable
-          } else {
-            console.error('Could not import variable:', suggestedVariable)
-            figma.notify('Error: Could not import variable', { error: true })
+        // Get the variable to apply
+        const variableId = suggestedVariable.id
+        let variable
+        try {
+          variable = figma.variables.getVariableById(variableId)
+          if (!variable) {
+            console.error('Variable not found:', variableId)
             return
           }
+        } catch (error) {
+          console.error('Error getting variable:', error)
+          return
         }
         
-        // Apply the variable based on property type
-        if (property.name.includes('Fill')) {
-          // For fill properties
-          if ('fills' in node && Array.isArray(node.fills)) {
-            const fillIndex = parseInt(property.name.replace('Fill ', '')) - 1
-            if (fillIndex >= 0 && fillIndex < node.fills.length) {
-              const fill = node.fills[fillIndex]
-              if (fill.type === 'SOLID') {
-                const newFill = figma.variables.setBoundVariableForPaint(
-                  fill as SolidPaint,
-                  'color',
+        console.log('Found variable:', variable.name)
+        
+        // Apply the variable based on property name
+        try {
+          const bindableNode = node as VariableBindableNode
+          const propertyName = property.name
+          
+          if (propertyName.includes('Corner Radius')) {
+            const cornerType = propertyName.replace('Corner Radius ', '')
+            let field: VariableBindableNodeField | null = null
+            
+            if (cornerType === 'Top Left') field = 'topLeftRadius'
+            else if (cornerType === 'Top Right') field = 'topRightRadius'
+            else if (cornerType === 'Bottom Left') field = 'bottomLeftRadius'
+            else if (cornerType === 'Bottom Right') field = 'bottomRightRadius'
+            
+            if (field) {
+              console.log(`Binding ${field} to variable:`, variable.name)
+              bindableNode.setBoundVariable(field, variable)
+            }
+          } else if (propertyName.includes('Padding')) {
+            const paddingType = propertyName.replace('Padding ', '')
+            let field: VariableBindableNodeField | null = null
+            
+            if (paddingType === 'Left') field = 'paddingLeft'
+            else if (paddingType === 'Right') field = 'paddingRight'
+            else if (paddingType === 'Top') field = 'paddingTop'
+            else if (paddingType === 'Bottom') field = 'paddingBottom'
+            
+            if (field) {
+              console.log(`Binding ${field} to variable:`, variable.name)
+              bindableNode.setBoundVariable(field, variable)
+            }
+          } else if (propertyName === 'Gap') {
+            console.log('Binding gap to variable:', variable.name)
+            
+            // For auto layout, gap is either itemSpacing or counterAxisSpacing
+            if (node.type === 'FRAME' && 'layoutMode' in node) {
+              const frame = node as FrameNode
+              const field: VariableBindableNodeField = 
+                frame.layoutMode === 'HORIZONTAL' ? 'itemSpacing' : 'counterAxisSpacing'
+              bindableNode.setBoundVariable(field, variable)
+            }
+          } else if (propertyName.includes('Fill')) {
+            console.log('Binding fill to variable:', variable.name)
+            
+            // For fill properties, need to handle solid fills
+            if ('fills' in node) {
+              const index = parseInt(propertyName.split(' ')[1]) - 1
+              if (index >= 0 && Array.isArray(node.fills) && index < node.fills.length) {
+                (node as any).setBoundVariable(
+                  ['fills', index, 'color'], 
                   variable
                 )
-                
-                // Update the fill
-                const newFills = [...node.fills]
-                newFills[fillIndex] = newFill
-                node.fills = newFills
-                figma.notify('Applied fill recommendation')
               }
             }
-          }
-        } else if (property.name.includes('Stroke')) {
-          // For stroke properties
-          if ('strokes' in node && Array.isArray(node.strokes)) {
-            const strokeIndex = parseInt(property.name.replace('Stroke ', '')) - 1
-            if (strokeIndex >= 0 && strokeIndex < node.strokes.length) {
-              const stroke = node.strokes[strokeIndex]
-              if (stroke.type === 'SOLID') {
-                const newStroke = figma.variables.setBoundVariableForPaint(
-                  stroke as SolidPaint,
-                  'color',
+          } else if (propertyName.includes('Stroke')) {
+            console.log('Binding stroke to variable:', variable.name)
+            
+            // For stroke properties, need to handle solid fills
+            if ('strokes' in node) {
+              const index = parseInt(propertyName.split(' ')[1]) - 1
+              if (index >= 0 && Array.isArray(node.strokes) && index < node.strokes.length) {
+                (node as any).setBoundVariable(
+                  ['strokes', index, 'color'], 
                   variable
                 )
-                
-                // Update the stroke
-                const newStrokes = [...node.strokes]
-                newStrokes[strokeIndex] = newStroke
-                node.strokes = newStrokes
-                figma.notify('Applied stroke recommendation')
-              }
-            }
-          }
-        } else if (property.name.includes('Corner Radius')) {
-          // For corner radius properties
-          
-          // Get the value of the current property
-          const currentValue = property.value;
-          
-          // Apply to the specific corner from the property
-          const cornerProp = property.name.replace('Corner Radius ', '').toLowerCase()
-          let appliedCount = 0;
-          
-          // Track which corners we've applied to
-          const appliedCorners = new Set<string>();
-          
-          // Apply to the specific corner from the property
-          if (cornerProp === 'top left' && 'topLeftRadius' in node) {
-            variableNode.setBoundVariable('topLeftRadius', variable)
-            appliedCorners.add('topLeftRadius');
-            appliedCount++;
-          } else if (cornerProp === 'top right' && 'topRightRadius' in node) {
-            variableNode.setBoundVariable('topRightRadius', variable)
-            appliedCorners.add('topRightRadius');
-            appliedCount++;
-          } else if (cornerProp === 'bottom right' && 'bottomRightRadius' in node) {
-            variableNode.setBoundVariable('bottomRightRadius', variable)
-            appliedCorners.add('bottomRightRadius');
-            appliedCount++;
-          } else if (cornerProp === 'bottom left' && 'bottomLeftRadius' in node) {
-            variableNode.setBoundVariable('bottomLeftRadius', variable)
-            appliedCorners.add('bottomLeftRadius');
-            appliedCount++;
-          }
-          
-          // Check other corners for the same value and apply the variable to them too
-          if ('cornerRadius' in node) {
-            // Check all corners
-            const cornerProps = [
-              { name: 'topLeftRadius', displayName: 'top left' },
-              { name: 'topRightRadius', displayName: 'top right' },
-              { name: 'bottomRightRadius', displayName: 'bottom right' },
-              { name: 'bottomLeftRadius', displayName: 'bottom left' }
-            ];
-            
-            for (const corner of cornerProps) {
-              // Skip corners we've already processed
-              if (appliedCorners.has(corner.name)) continue;
-              
-              // Check if this corner has the same value and exists on the node
-              if (corner.name in node && (node as any)[corner.name] === currentValue) {
-                variableNode.setBoundVariable(corner.name as VariableBindableNodeField, variable);
-                appliedCount++;
               }
             }
           }
           
-          if (appliedCount > 1) {
-            figma.notify(`Applied radius recommendation to ${appliedCount} corners`);
-          } else {
-            figma.notify('Applied radius recommendation');
-          }
-        } else if (property.name.includes('Padding')) {
-          // For padding properties
-          
-          // Get the value of the current property
-          const currentValue = property.value;
-          
-          // Apply to the specific padding from the property
-          const paddingProp = property.name.replace('Padding ', '').toLowerCase()
-          let appliedCount = 0;
-          
-          // Track which padding directions we've applied to
-          const appliedPaddings = new Set<string>();
-          
-          // Apply to the specific padding from the property
-          if (paddingProp === 'left' && 'paddingLeft' in node) {
-            variableNode.setBoundVariable('paddingLeft', variable)
-            appliedPaddings.add('paddingLeft');
-            appliedCount++;
-          } else if (paddingProp === 'right' && 'paddingRight' in node) {
-            variableNode.setBoundVariable('paddingRight', variable)
-            appliedPaddings.add('paddingRight');
-            appliedCount++;
-          } else if (paddingProp === 'top' && 'paddingTop' in node) {
-            variableNode.setBoundVariable('paddingTop', variable)
-            appliedPaddings.add('paddingTop');
-            appliedCount++;
-          } else if (paddingProp === 'bottom' && 'paddingBottom' in node) {
-            variableNode.setBoundVariable('paddingBottom', variable)
-            appliedPaddings.add('paddingBottom');
-            appliedCount++;
-          }
-          
-          // Check other padding directions for the same value and apply the variable to them too
-          const paddingProps = [
-            { name: 'paddingLeft', displayName: 'left' },
-            { name: 'paddingRight', displayName: 'right' },
-            { name: 'paddingTop', displayName: 'top' },
-            { name: 'paddingBottom', displayName: 'bottom' }
-          ];
-          
-          for (const padding of paddingProps) {
-            // Skip padding directions we've already processed
-            if (appliedPaddings.has(padding.name)) continue;
-            
-            // Check if this padding has the same value and exists on the node
-            if (padding.name in node && (node as any)[padding.name] === currentValue) {
-              variableNode.setBoundVariable(padding.name as VariableBindableNodeField, variable);
-              appliedCount++;
-            }
-          }
-          
-          if (appliedCount > 1) {
-            figma.notify(`Applied padding recommendation to ${appliedCount} sides`);
-          } else {
-            figma.notify('Applied padding recommendation');
-          }
-        } else if (property.name === 'Gap' && node.type === 'FRAME' && 'itemSpacing' in node) {
-          // For gap properties
-          variableNode.setBoundVariable('itemSpacing', variable)
-          figma.notify('Applied gap recommendation')
-        } else if (property.name === 'Typography' && node.type === 'TEXT') {
-          // For typography properties - this would require more complex handling for text styles
-          figma.notify('Typography recommendations not yet supported')
-        } else {
-          figma.notify('Unsupported property type', { error: true })
+          console.log('Recommendation applied successfully')
+        } catch (error) {
+          console.error('Error binding variable:', error)
         }
       } catch (error) {
-        console.error('Error applying recommendation:', error)
-        figma.notify('Error applying recommendation', { error: true })
+        console.error('Error in apply recommendation handler:', error)
       }
     })
     
-    // Handle Run Reviewer event
+    // Handle open external URL
+    on<OpenExternalUrlHandler>('OPEN_EXTERNAL_URL', (url) => {
+      console.log('Opening external URL:', url)
+      figma.openExternal(url)
+    })
+    
+    // Handle run reviewer
     on<RunReviewerHandler>('RUN_REVIEWER', async function () {
-      console.log('Run Reviewer event received')
-      
-      if (!hasSingleFrameSelected) {
-        console.log('No single frame selected')
-        return
-      }
-      
       try {
-        const frame = figma.currentPage.selection[0] as FrameNode
-        console.log('Exporting frame:', frame.name)
+        console.log('Running reviewer...')
         
-        // Export the frame as PNG
-        const bytes = await frame.exportAsync({
-          format: 'PNG',
-          constraint: { type: 'SCALE', value: 2 }
-        })
-        
-        // Convert to base64 for sending to UI
-        const base64Image = figma.base64Encode(bytes)
-        const imageUrl = `data:image/png;base64,${base64Image}`
-        
-        // Send the image data to the UI
-        const frameImageData: FrameImageData = {
-          imageUrl,
-          width: frame.width,
-          height: frame.height,
-          frameName: frame.name,
-          frameId: frame.id
+        if (!hasSingleFrameSelected) {
+          console.log('No single frame selected')
+          return
         }
         
-        console.log('Frame exported successfully')
-        emit<FrameImageExportedHandler>('FRAME_IMAGE_EXPORTED', frameImageData)
+        try {
+          const frame = figma.currentPage.selection[0] as FrameNode
+          console.log('Exporting frame:', frame.name)
+          
+          // Export the frame as PNG
+          const bytes = await frame.exportAsync({
+            format: 'PNG',
+            constraint: { type: 'SCALE', value: 2 }
+          })
+          
+          // Convert to base64 for sending to UI
+          const base64Image = figma.base64Encode(bytes)
+          const imageUrl = `data:image/png;base64,${base64Image}`
+          
+          // Send the image data to the UI
+          const frameImageData: FrameImageData = {
+            imageUrl,
+            width: frame.width,
+            height: frame.height,
+            frameName: frame.name,
+            frameId: frame.id
+          }
+          
+          console.log('Frame exported successfully')
+          emit<FrameImageExportedHandler>('FRAME_IMAGE_EXPORTED', frameImageData)
+        } catch (error) {
+          console.error('Error exporting frame:', error)
+          figma.notify('Error exporting frame', { error: true })
+        }
       } catch (error) {
-        console.error('Error exporting frame:', error)
-        figma.notify('Error exporting frame', { error: true })
+        console.error('Error in run reviewer handler:', error)
       }
     })
     

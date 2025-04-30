@@ -434,6 +434,8 @@ function Plugin() {
   const [appliedRecommendationsCount, setAppliedRecommendationsCount] = useState<number>(0)
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false)
   const [isReviewerSettingsModalOpen, setIsReviewerSettingsModalOpen] = useState<boolean>(false)
+  const [apiKey, setApiKey] = useState<string>('')
+  const [isApiKeySaved, setIsApiKeySaved] = useState<boolean>(false)
   
   // Reviewer-specific state
   const [isReviewing, setIsReviewing] = useState<boolean>(false)
@@ -637,6 +639,38 @@ function Plugin() {
         setIsReviewing(false)
       }
     )
+  }, [])
+
+  // Handle API key change
+  const handleApiKeyChange = useCallback((event: h.JSX.TargetedEvent<HTMLInputElement>) => {
+    try {
+      const value = event.currentTarget.value
+      setApiKey(value)
+      setIsApiKeySaved(false)
+    } catch (error) {
+      console.error('Error changing API key:', error);
+    }
+  }, [])
+
+  // Handle API key save
+  const handleSaveApiKey = useCallback(() => {
+    try {
+      // Here you would typically store the API key or send it to the main context
+      console.log('Saving API key:', apiKey)
+      // Later we'll add persistence, for now just mark it as saved for UI feedback
+      setIsApiKeySaved(true)
+    } catch (error) {
+      console.error('Error saving API key:', error);
+    }
+  }, [apiKey])
+
+  // Handle opening the API key link
+  const handleOpenApiKeyLink = useCallback(() => {
+    try {
+      emit('OPEN_EXTERNAL_URL', 'https://openai-proxy.shopify.io/')
+    } catch (error) {
+      console.error('Error opening API key link:', error);
+    }
   }, [])
 
   // Helper function to get the correct icon based on node type
@@ -1109,10 +1143,42 @@ function Plugin() {
         <div style={{ padding: '16px' }}>
           <Container space="medium">
             <VerticalSpace space="large" />
-            <Text>Reviewer Settings</Text>
+            <Text>Shopify OpenAI Proxy API Key</Text>
+            <VerticalSpace space="small" />
+            <Textbox
+              placeholder="Enter your Shopify OpenAI Proxy API key..."
+              value={apiKey}
+              onChange={handleApiKeyChange}
+              password
+            />
+            <VerticalSpace space="extraSmall" />
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <Button
+                onClick={handleSaveApiKey}
+                secondary
+              >
+                Save API Key
+              </Button>
+              {isApiKeySaved && (
+                <Text style="small">
+                  <span style={successTextStyle}>✓ API key saved</span>
+                </Text>
+              )}
+            </div>
+            
+            <VerticalSpace space="large" />
+            <Button 
+              onClick={handleOpenApiKeyLink}
+              secondary
+              fullWidth
+            >
+              Get Shopify OpenAI Proxy API Key
+            </Button>
+            
             <VerticalSpace space="large" />
             <Text style="small">
-              Configure settings for the design reviewer.
+              You need a Shopify OpenAI Proxy API key to use the design reviewer features. 
+              The key will be used to analyze design screenshots and provide feedback.
             </Text>
           </Container>
         </div>
