@@ -80,6 +80,15 @@ const layerHeader = {
   cursor: 'pointer'
 }
 
+// CSS for results container
+const resultsContainer = {
+  border: '1px solid #E5E5E5',
+  borderRadius: '8px',
+  marginBottom: '16px',
+  overflow: 'hidden',
+  padding: '10px 10px' // Consistent with layerHeader padding
+}
+
 // CSS for properties container
 const propertiesContainer = {
   padding: '0 6px 0 6px' // Changed left padding from 8px to 6px, kept 0 top/bottom and 6px right
@@ -906,14 +915,13 @@ function Plugin() {
         
         {hasResults ? (
           <div>
-            <div style={{ paddingLeft: '4px', paddingRight: '4px' }}>
+            <div style={resultsContainer}>
               <Text style="bold">
                 {analysisResults.reduce((count, result) => 
                   count + result.properties.filter(prop => prop.isMismatched).length, 0
                 ) - appliedRecommendationsCount} Issues found
               </Text>
             </div>
-            <VerticalSpace space="medium" />
             {renderAnalysisResults()}
           </div>
         ) : (
