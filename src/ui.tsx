@@ -1331,7 +1331,14 @@ function Plugin() {
         <div style={{ padding: '16px 8px' }}>
           <Container space="small">
             <VerticalSpace space="medium" />
-            <Text>Shopify OpenAI Proxy API Key</Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text>Shopify OpenAI Proxy API Key</Text>
+              {isApiKeySaved && (
+                <Text style="small">
+                  <span style={successTextStyle}>✓ Saved</span>
+                </Text>
+              )}
+            </div>
             <VerticalSpace space="small" />
             <Textbox
               placeholder="Enter key"
@@ -1339,13 +1346,6 @@ function Plugin() {
               onChange={handleApiKeyChange}
               password
             />
-            <div style={{ display: 'flex', alignItems: 'center', minHeight: '12px' }}>
-              {isApiKeySaved && (
-                <Text style="small">
-                  <span style={successTextStyle}>✓ API key saved for this session</span>
-                </Text>
-              )}
-            </div>
             
             {/* Stacked button container */}
             <div style={{ 
@@ -1353,7 +1353,7 @@ function Plugin() {
               flexDirection: 'column',
               gap: '8px', 
               width: '100%', 
-              marginTop: '-4px' 
+              marginTop: '8px' 
             }}>
               {/* Save API Key button first */}
               <Button
