@@ -92,7 +92,7 @@ const layerHeader = {
 const resultsContainer = {
   border: '1px solid #E5E5E5',
   borderRadius: '8px',
-  marginBottom: '16px',
+  marginBottom: '8px',
   overflow: 'hidden',
   padding: '10px 10px' // Consistent with layerHeader padding
 }
@@ -335,7 +335,7 @@ function PropertyRow({
     padding: '16px',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '16px'
+    gap: '8px'
   };
 
   // Get the suggested variable if available
@@ -394,7 +394,7 @@ function PropertyRow({
         onCloseButtonClick={handleCloseModal} 
         open={isModalOpen} 
         position="bottom" 
-        title={`AI Recommendation for ${title}`}
+        title={title}
         onOverlayClick={handleCloseModal}
         onEscapeKeyDown={handleCloseModal}
         style={modalStyle}
@@ -402,15 +402,15 @@ function PropertyRow({
         <div style={modalContentStyle}>
           <div>
             <Text style="bold">Current Value</Text>
-            <VerticalSpace space="small" />
-            <Text>{description}</Text>
+            <VerticalSpace space="extraSmall" />
+            <Text style={{color: '#8C8C8C'}}>{description}</Text>
           </div>
           
           {suggestedVariable && (
-            <div>
+            <div style={{marginTop: '16px'}}>
               <Text style="bold">Suggested Fix</Text>
-              <VerticalSpace space="small" />
-              <Text>Use the variable: "{suggestedVariable.name}" with value: {
+              <VerticalSpace space="extraSmall" />
+              <Text style={{color: '#2E7D32'}}>Use the variable: "{suggestedVariable.name}" with value: {
                 typeof suggestedVariable.value === 'object' && 'r' in suggestedVariable.value
                 ? `#${Math.round(suggestedVariable.value.r * 255).toString(16).padStart(2, '0')}${
                      Math.round(suggestedVariable.value.g * 255).toString(16).padStart(2, '0')}${
@@ -421,10 +421,10 @@ function PropertyRow({
           )}
           
           {!suggestedVariable && (
-            <div>
+            <div style={{marginTop: '16px'}}>
               <Text style="bold">No Specific Suggestion Available</Text>
-              <VerticalSpace space="small" />
-              <Text>We recommend using variables from the selected design system library.</Text>
+              <VerticalSpace space="extraSmall" />
+              <Text style={{color: '#8C8C8C'}}>We recommend using variables from the selected design system library.</Text>
             </div>
           )}
           
@@ -478,9 +478,6 @@ function Plugin() {
   const [frameImage, setFrameImage] = useState<FrameImageData | null>(null)
   const [designReview, setDesignReview] = useState<DesignReviewResult | null>(null)
   const [isProcessingReview, setIsProcessingReview] = useState<boolean>(false)
-
-  // New state variable for Content tab
-  const [isContentSettingsModalOpen, setIsContentSettingsModalOpen] = useState<boolean>(false)
 
   // Initialize
   useEffect(function () {
@@ -661,15 +658,6 @@ function Plugin() {
 
   const handleCloseReviewerSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
     setIsReviewerSettingsModalOpen(false)
-  }, [])
-
-  // Add Content settings modal handlers after the Reviewer settings handlers
-  const handleOpenContentSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
-    setIsContentSettingsModalOpen(true)
-  }, [])
-
-  const handleCloseContentSettingsModal = useCallback((event: JSX.TargetedMouseEvent<HTMLButtonElement>) => {
-    setIsContentSettingsModalOpen(false)
   }, [])
 
   // Handle Run Reviewer click
@@ -1075,6 +1063,30 @@ function Plugin() {
     );
   };
 
+  // CSS for empty state container
+  const emptyStateContainer = {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center' as const,
+    height: 'calc(100vh - 150px)', // Adjust for tab header and footer
+    padding: '0 20px'
+  };
+
+  // CSS for empty state title - closer to original
+  const emptyStateTitle = {
+    fontWeight: 'medium' as const
+  };
+
+  // CSS for empty state description - keep color but size closer to original
+  const emptyStateDescription = {
+    color: '#8C8C8C', // Subdued gray color
+    maxWidth: '360px', // Limit width for better readability
+    textAlign: 'center' as const,
+    width: '100%'
+  };
+
   // Tab content components
   const LintTab = (
     <div style={contentStyle}>
@@ -1093,12 +1105,10 @@ function Plugin() {
             {renderAnalysisResults()}
           </div>
         ) : (
-          <div>
-            {!hasSingleFrameSelected ? (
-              <Text>Select a single frame to analyze</Text>
-            ) : (
-              <Text>Click "Analyze Frame" to begin analysis</Text>
-            )}
+          <div style={emptyStateContainer}>
+            <Text style={{ textAlign: 'center' }}><span style={emptyStateTitle}>Select a frame</span></Text>
+            <VerticalSpace space="small" />
+            <Text style={{ textAlign: 'center' }}><span style={emptyStateDescription}>Check for consistency with your selected design system</span></Text>
           </div>
         )}
       </Container>
@@ -1108,8 +1118,6 @@ function Plugin() {
   const ReviewerTab = (
     <div style={contentStyle}>
       <Container space="medium">
-        <VerticalSpace space="large" />
-        <Text>Frame Reviewer</Text>
         <VerticalSpace space="large" />
         
         {/* Prioritize showing results if they exist */}
@@ -1234,27 +1242,12 @@ function Plugin() {
             <VerticalSpace space="small" />
             <Text>Exporting frame...</Text>
           </div>
-        ) : !hasSingleFrameSelected ? (
-          <Text>Select a single frame to review</Text>
         ) : (
-          <Text>Click "Run Reviewer" to export the selected frame</Text>
-        )}
-      </Container>
-    </div>
-  )
-
-  // Add Content tab to the tabOptions array
-  const ContentTab = (
-    <div style={contentStyle}>
-      <Container space="medium">
-        <VerticalSpace space="large" />
-        <Text>Content</Text>
-        <VerticalSpace space="large" />
-        
-        {!hasSingleFrameSelected ? (
-          <Text>Select a single frame to analyze content</Text>
-        ) : (
-          <Text>Click "Run" to analyze the selected frame's content</Text>
+          <div style={emptyStateContainer}>
+            <Text style={{ textAlign: 'center' }}><span style={emptyStateTitle}>Select a frame</span></Text>
+            <VerticalSpace space="small" />
+            <Text style={{ textAlign: 'center' }}><span style={emptyStateDescription}>Get AI-driven feedback from various agents, including JasonBot, AndreaBot, ContentBot, and TypographyBot—all of whom are experts in their respective domains.</span></Text>
+          </div>
         )}
       </Container>
     </div>
@@ -1265,10 +1258,6 @@ function Plugin() {
     {
       children: LintTab,
       value: 'Linter'
-    },
-    {
-      children: ContentTab,
-      value: 'Content'
     },
     {
       children: ReviewerTab,
@@ -1292,7 +1281,7 @@ function Plugin() {
         title="Linter Settings"
         style={{ height: '88vh' }}
       >
-        <div style={{ padding: '16px' }}>
+        <div style={{ padding: '16px 8px' }}>
           <Container space="medium">
             <VerticalSpace space="large" />
             <Text>Variable Collection</Text>
@@ -1339,25 +1328,18 @@ function Plugin() {
         title="Reviewer Settings"
         style={{ height: '88vh' }}
       >
-        <div style={{ padding: '16px' }}>
-          <Container space="medium">
-            <VerticalSpace space="large" />
+        <div style={{ padding: '16px 8px' }}>
+          <Container space="small">
+            <VerticalSpace space="medium" />
             <Text>Shopify OpenAI Proxy API Key</Text>
             <VerticalSpace space="small" />
             <Textbox
-              placeholder="Enter your Shopify OpenAI Proxy API key..."
+              placeholder="Enter key"
               value={apiKey}
               onChange={handleApiKeyChange}
               password
             />
-            <VerticalSpace space="extraSmall" />
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Button
-                onClick={handleSaveApiKey}
-                secondary
-              >
-                Save API Key
-              </Button>
+            <div style={{ display: 'flex', alignItems: 'center', minHeight: '12px' }}>
               {isApiKeySaved && (
                 <Text style="small">
                   <span style={successTextStyle}>✓ API key saved for this session</span>
@@ -1365,50 +1347,43 @@ function Plugin() {
               )}
             </div>
             
-            <VerticalSpace space="large" />
-            <Button 
-              onClick={handleOpenApiKeyLink}
-              secondary
-              fullWidth
-            >
-              Get Shopify OpenAI Proxy API Key
-            </Button>
+            {/* Stacked button container */}
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              gap: '8px', 
+              width: '100%', 
+              marginTop: '-4px' 
+            }}>
+              {/* Save API Key button first */}
+              <Button
+                onClick={handleSaveApiKey}
+                fullWidth
+                disabled={!apiKey.trim()}
+              >
+                Save API Key
+              </Button>
+              
+              {/* Get API Key button second */}
+              <Button 
+                onClick={handleOpenApiKeyLink}
+                secondary
+                fullWidth
+              >
+                Get API Key
+              </Button>
+            </div>
             
             <VerticalSpace space="large" />
-            <Text style="small">
-              You need a Shopify OpenAI Proxy API key to use the design reviewer features. 
-              The key will be used to analyze design screenshots and provide feedback.
-              Your API key is kept in memory only and transmitted securely via HTTPS.
-            </Text>
           </Container>
         </div>
       </Modal>
       
-      {/* Content settings modal after the Reviewer settings modal */}
-      <Modal 
-        onCloseButtonClick={handleCloseContentSettingsModal} 
-        open={isContentSettingsModalOpen} 
-        position="bottom" 
-        title="Content Settings"
-        style={{ height: '88vh' }}
-      >
-        <div style={{ padding: '16px' }}>
-          <Container space="medium">
-            <VerticalSpace space="large" />
-            <Text>Content Analysis Settings</Text>
-            <VerticalSpace space="large" />
-            <Text style="small">
-              Content analysis settings will be available in a future update.
-            </Text>
-          </Container>
-        </div>
-      </Modal>
-      
-      {/* Update the fixed footer section to include the Content tab */}
-      {!isAnyModalOpen && !isSettingsModalOpen && !isReviewerSettingsModalOpen && !isContentSettingsModalOpen && (
+      {/* Update the fixed footer section */}
+      {!isAnyModalOpen && !isSettingsModalOpen && !isReviewerSettingsModalOpen && (
         <div style={footerStyle}>
           {currentTab === 'Linter' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
               <IconButton 
                 onClick={handleOpenSettingsModal}
                 style={{ 
@@ -1429,45 +1404,33 @@ function Plugin() {
             </div>
           )}
           {currentTab === 'Reviewer' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <IconButton 
-                onClick={handleOpenReviewerSettingsModal}
-                style={{ 
-                  border: '1px solid rgba(0, 0, 0, 0.1)', 
-                  borderRadius: '6px', 
-                  padding: '8px',
-                  color: '#666666' // Darker gray color for the icon
-                }}
-              >
-                <IconAdjust16 />
-              </IconButton>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              {isApiKeySaved ? (
+                <IconButton 
+                  onClick={handleOpenReviewerSettingsModal}
+                  style={{ 
+                    border: '1px solid rgba(0, 0, 0, 0.1)', 
+                    borderRadius: '6px', 
+                    padding: '8px',
+                    color: '#666666' // Darker gray color for the icon
+                  }}
+                >
+                  <IconAdjust16 />
+                </IconButton>
+              ) : (
+                <Button 
+                  onClick={handleOpenReviewerSettingsModal}
+                  secondary
+                  danger
+                >
+                  API key required
+                </Button>
+              )}
               <Button 
-                disabled={!hasSingleFrameSelected || isReviewing}
+                disabled={!hasSingleFrameSelected || isReviewing || !isApiKeySaved}
                 onClick={handleRunReviewerClick}
               >
                 {isReviewing ? 'Exporting...' : 'Run Reviewer'}
-              </Button>
-            </div>
-          )}
-          {currentTab === 'Content' && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <IconButton 
-                onClick={handleOpenContentSettingsModal}
-                style={{ 
-                  border: '1px solid rgba(0, 0, 0, 0.1)', 
-                  borderRadius: '6px', 
-                  padding: '8px',
-                  color: '#666666' // Darker gray color for the icon
-                }}
-              >
-                <IconAdjust16 />
-              </IconButton>
-              <Button 
-                disabled={!hasSingleFrameSelected}
-                // For now this doesn't do anything, just a placeholder for future functionality
-                onClick={() => console.log('Content analysis would start here')}
-              >
-                Run
               </Button>
             </div>
           )}
